@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>1UP - Objetos Detectados</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <header class="header">
+        <div class="container">
+            <h1 class="logo">1UP</h1>
+            <p class="tagline">Dando una segunda vida a los objetos</p>
+        </div>
+    </header>
+
+    <main class="main">
+        <div class="container">
+            <div class="stats-bar">
+                <span class="stat">
+                    <strong>{{ objects|length }}</strong> objetos disponibles
+                </span>
+                <span class="stat">
+                    Última actualización: {{ objects[0].timestamp if objects else 'N/A' }}
+                </span>
+            </div>
+
+            {% if objects %}
+            <div class="products-grid">
+                {% for obj in objects %}
+                <div class="product-card">
+                    <div class="product-image">
+                        {% if obj.thumbnail %}
+                        <img src="{{ url_for('serve_image', filename=obj.thumbnail) }}?v={{ obj.timestamp }}" 
+                             alt="{{ obj.name }}"
+                             onerror="console.error('Error loading image:', this.src); this.src='data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'300\' height=\'300\'%3E%3Crect fill=\'%23ddd\' width=\'300\' height=\'300\'/%3E%3Ctext x=\'50%25\' y=\'50%25\' text-anchor=\'middle\' dy=\'.3em\' fill=\'%23999\'%3ESin imagen%3C/text%3E%3C/svg%3E';">
+                        {% else %}
+                        <div class="no-image">Sin imagen</div>
+                        {% endif %}
+                        <div class="product-badge">{{ obj.category }}</div>
+                    </div>
+                    
+                    <div class="product-info">
+                        <h2 class="product-name">{{ obj.name }}</h2>
+                        <p class="product-description">{{ obj.description }}</p>
+                        
+                        <div class="product-details">
+                            <div class="detail-item">
+                                <span class="detail-label">Condición:</span>
+                                <span class="detail-value condition-{{ obj.condition.lower() }}">
+                                    {{ obj.condition }}
+                                </span>
+                            </div>
+                            <div class="detail-item">
+                                <span class="detail-label">Valor estimado:</span>
+                                <span class="detail-value price">{{ obj.estimated_value }}</span>
+                            </div>
+                            <div class="detail-item">
+                                <span class="detail-label">Confianza:</span>
+                                <span class="detail-value">{{ "%.1f"|format(obj.confidence * 100) }}%</span>
+                            </div>
+                        </div>
+                        
+                        <div class="product-footer">
+                            <span class="product-id">ID: {{ obj.id }}</span>
+                            <span class="product-date">{{ obj.timestamp }}</span>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="empty-state">
+                <h2>No hay objetos disponibles</h2>
+                <p>Ejecuta el sistema de detección para agregar objetos al catálogo.</p>
+            </div>
+            {% endif %}
+        </div>
+    </main>
+
+    <footer class="footer">
+        <div class="container">
+            <p>&copy; 2025 1UP - Sistema de reconocimiento de objetos</p>
+        </div>
+    </footer>
+</body>
+</html>
+

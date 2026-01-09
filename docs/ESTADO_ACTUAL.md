@@ -1,0 +1,293 @@
+# 📊 Estado Actual del Sistema 1UP
+
+**Fecha:** 2025-12-03  
+**Versión:** MVP - Optimizado
+
+---
+
+## 🎯 Resumen Ejecutivo
+
+**1UP** es un sistema de detección automática de múltiples objetos en fotos para generar datos listos para ecommerce. Utiliza **SAM 3** (Segment Anything Model 3) para detectar objetos y **Claude Sonnet 4** para identificarlos y analizarlos.
+
+**Filosofía actual:** "Detectar TODO, filtrar después con Claude"
+- SAM 3 detecta TODO (hipersensible, múltiples prompts)
+- Claude decide qué objetos son útiles (filtrado inteligente)
+- Solo se generan crops para objetos útiles
+
+---
+
+## 🏗️ Arquitectura del Sistema
+
+### Componentes Principales
+
+1. **`detector.py`** - SAM 3 Object Detector
+   - Detecta objetos usando SAM 3 (Segment Anything Model 3)
+   - Usa múltiples prompts para máxima cobertura: `"visual"`, `"container"`, `"object"`, `"furniture"`, `"tool"`
+   - `confidence_threshold: 0.001` (MÁXIMA DETECCIÓN)
+   - Devuelve: máscaras, bboxes, scores
+   - **NO identifica objetos** (solo detecta dónde están)
+
+2. **`analyzer.py`** - Claude Vision Analyzer
+   - Analiza objetos usando Claude Sonnet 4
+   - Recibe: 1 imagen completa + lista de bboxes (texto)
+   - Identifica: nombres, categorías, condiciones, descripciones, precios
+   - Filtra objetos útiles (`useful="yes"` o `useful="no"`)
+   - Agrupa objetos similares (ej: "Especiero con 7 frascos")
+
+3. **`live_detection.py`** - Pipeline Principal
+   - Orquesta SAM 3 y Claude
+   - Maneja cámara, captura, validación de calidad
+   - Genera crops solo para objetos útiles (después de Claude)
+   - Guarda en base de datos JSON
+
+4. **`storage_v2.py`** - Gestión de Crops
+   - Genera crops/thumbnails para objetos útiles
+   - Validación de contenido de crops
+   - Estandariza aspect ratio (1:1, cuadrado)
+
+5. **`filters.py`** - Filtros Post-Claude
+   - Filtra nombres genéricos
+   - Filtra objetos muy grandes (fondo)
+   - Centralizado y documentado
+
+6. **`web_app.py`** - Servidor Web E-commerce
+   - Flask app en `http://localhost:5001`
+   - Muestra objetos detectados en formato e-commerce
+
+---
+
+## 🔄 Flujo Completo del Sistema
+
+```
+1. Usuario presiona SPACE → Captura foto
+   ↓
+2. ✅ Validación de calidad (blur detection) → Rechaza imágenes borrosas
+   ↓
+3. SAM 3 detecta objetos (MÚLTIPLES PROMPTS) → Genera bboxes y máscaras
+   - Prompts: "visual", "container", "object", "furniture", "tool"
+   - confidence_threshold: 0.001 (MÁXIMA DETECCIÓN)
+   - Resultado: 50-150 detecciones RAW
+   ↓
+4. Claude valida y analiza TODO → 1 imagen + lista de TODOS los bboxes (texto)
+   - Input: 1 imagen completa + bboxes en texto
+   - Output: JSON con análisis de cada objeto
+   - Claude decide: useful="yes" o useful="no"
+   - Claude agrupa objetos similares
+   ↓
+5. Post-filtrado (filters.py) → Filtra nombres genéricos, objetos muy grandes
+   ↓
+6. Genera crops DESPUÉS de Claude → Thumbnails SOLO para objetos útiles
+   - n=1 → obj_001.jpg
+   - n=2 → obj_002.jpg
+   - Validación de contenido de crops
+   ↓
+7. Merge objetos similares → Agrupa duplicados (ej: frascos de especias)
+   ↓
+8. Guarda en base de datos → JSON con metadata
+   ↓
+9. Web muestra → Flask sirve objetos desde JSON
+```
+
+---
+
+## ⚙️ Configuración Actual
+
+### SAM 3
+
+```yaml
+sam3:
+  device: "mps"  # Mac M2 GPU
+  text_prompt: ""  # Vacío = detección automática (múltiples prompts)
+  enhance_image: true  # CLAHE para objetos oscuros
+  confidence_threshold: 0.001  # MÁXIMA DETECCIÓN (en detector.py)
+  
+  filtering:
+    enabled: false  # DESHABILITADO - SAM detecta TODO
+    min_area: 50
+    max_area_ratio: 0.9
+    nms_iou_threshold: 0.9  # Solo duplicados exactos
+```
+
+### Claude
+
+```yaml
+claude:
+  model: "claude-sonnet-4-20250514"
+  max_tokens: 16000
+  temperature: 0  # Determinístico
+```
+
+### Cámara
+
+```yaml
+camera:
+  index: 1  # Cámara externa preferida
+  resolution: [1920, 1080]
+  allow_iphone: true  # Permite iPhone/Continuity Camera
+  quality_check:
+    enabled: true
+    min_sharpness: 20.0  # Rechaza imágenes borrosas
+```
+
+---
+
+## 📊 Métricas de Rendimiento
+
+### Detección
+
+- **Detecciones SAM:** 50-150 objetos RAW (depende de escena)
+- **Objetos enviados a Claude:** TODOS (sin pre-filtrado)
+- **Objetos útiles (Claude):** 10-30 objetos (depende de escena)
+- **Objetos finales guardados:** 8-25 objetos (después de merge y filtros)
+
+### Tiempo
+
+- **SAM 3 detección:** 5-15 segundos
+- **Claude análisis:** 10-30 segundos (depende de número de objetos)
+- **Generación de crops:** 1-3 segundos
+- **Total por captura:** 20-50 segundos
+
+### Coste
+
+- **Claude API:** ~$0.003-0.005 por captura
+  - 1 imagen (~5,000 tokens input)
+  - Análisis de objetos (~8,000-15,000 tokens output)
+
+---
+
+## ✅ Características Implementadas
+
+### Detección
+
+- ✅ SAM 3 con múltiples prompts (máxima cobertura)
+- ✅ Detección hipersensible (confidence_threshold: 0.001)
+- ✅ Image enhancement (CLAHE) para objetos oscuros
+- ✅ Validación de calidad de imagen (blur detection)
+
+### Análisis
+
+- ✅ Claude Sonnet 4 para identificación y análisis
+- ✅ 1 imagen + bboxes en texto (eficiente, ~$0.003 por captura)
+- ✅ Filtrado inteligente (Claude decide qué es útil)
+- ✅ Agrupación de objetos similares (ej: "Especiero con 7 frascos")
+
+### Post-procesamiento
+
+- ✅ Generación de crops solo para objetos útiles
+- ✅ Validación de contenido de crops
+- ✅ Merge de objetos similares (evita duplicados)
+- ✅ Estandarización de aspect ratio (1:1)
+
+### Visualización
+
+- ✅ Servidor web Flask (localhost:5001)
+- ✅ Formato e-commerce con thumbnails
+- ✅ Metadata completa (nombre, categoría, condición, precio)
+
+---
+
+## 🔧 Optimizaciones Aplicadas
+
+1. ✅ **SAM se ejecuta solo una vez** (no dos veces)
+2. ✅ **Crops se generan después de Claude** (solo objetos útiles)
+3. ✅ **Mapeo simplificado** (n directo: n=1 → obj_001.jpg)
+4. ✅ **Filtros centralizados** (módulo `filters.py`)
+5. ✅ **Prompt de Claude simplificado** (~50 líneas vs ~600)
+6. ✅ **Validación de calidad de imagen** (blur detection)
+
+**Ahorro total:** 6.5-18 segundos por imagen procesada
+
+---
+
+## 🚧 Limitaciones Actuales
+
+### SAM 3
+
+- ❌ **NO hay video tracking** - Modo "image per frame"
+  - Cada frame se procesa independientemente
+  - No hay `object_id` persistente entre frames
+  - No podemos extraer el mejor crop del mismo objeto a lo largo de frames
+
+- ❌ **NO identifica objetos** - Solo detecta dónde están
+  - La identificación la hace Claude
+
+### Claude
+
+- ⚠️ **Depende de API externa** - Requiere conexión a internet
+- ⚠️ **Coste por captura** - ~$0.003-0.005 (aceptable para MVP)
+
+### Cámara
+
+- ⚠️ **Autofocus temporal** - Solo para cámaras USB externas (eliminar en futuro)
+- ⚠️ **Calidad de imagen** - Depende de iluminación y enfoque
+
+---
+
+## 📁 Estructura de Archivos
+
+```
+1UP_2/
+├── detector.py          # SAM 3 detector
+├── analyzer.py          # Claude analyzer
+├── live_detection.py    # Pipeline principal
+├── storage_v2.py        # Gestión de crops
+├── filters.py           # Filtros post-Claude
+├── web_app.py          # Servidor web Flask
+├── config.yaml          # Configuración central
+├── camera_utils.py      # Utilidades de cámara
+├── image_quality.py     # Validación de calidad
+│
+├── database/
+│   └── objects.json     # Base de datos JSON
+│
+├── images/
+│   ├── raw/             # Escenas completas
+│   └── crops/            # Objetos individuales
+│
+├── docs/                # Documentación
+│   ├── ESTADO_ACTUAL.md  # Este archivo
+│   ├── PROCESO_COMPLETO.md
+│   ├── SAM3_CURRENT_USAGE.md
+│   └── ...
+│
+└── sam3/                # SAM 3 source code
+```
+
+---
+
+## 🎯 Próximos Pasos
+
+### Corto Plazo
+
+1. **Integración con cámara Reolink** (seguridad)
+2. **Mejora de agrupación** (reducir duplicados)
+3. **Validación de crops** (mejorar detección de crops vacíos)
+
+### Medio Plazo
+
+1. **Video tracking con SAM 3** (habilitar object_ids persistentes)
+2. **Integración con ecommerce** (Shopify, WooCommerce)
+3. **API REST** para subir productos
+
+### Largo Plazo
+
+1. **App móvil** (usuario toma foto → auto-upload)
+2. **Sistema automático punto limpio** (cámara → detección → publicación)
+3. **Base de datos PostgreSQL** (migrar de JSON)
+
+---
+
+## 📚 Documentación Relacionada
+
+- **[Proceso Completo](PROCESO_COMPLETO.md)** - Flujo end-to-end detallado
+- **[SAM 3 Current Usage](SAM3_CURRENT_USAGE.md)** - Detalles técnicos de SAM 3
+- **[Getting Started](GETTING_STARTED.md)** - Guía de inicio rápido
+- **[Live Detection](LIVE_DETECTION.md)** - Uso de detección en vivo
+- **[SAM 3 Config](SAM3_CONFIG.md)** - Configuración de SAM 3
+- **[Filtering](FILTERING.md)** - Sistema de filtrado
+
+---
+
+**Última actualización:** 2025-12-03  
+**Mantenido por:** Jose (@jba7790)
+

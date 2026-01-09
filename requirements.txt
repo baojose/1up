@@ -1,0 +1,30 @@
+# 1UP - Dependencies
+
+# Core ML/AI
+torch>=2.0.0
+torchvision>=0.15.0
+
+# Computer Vision
+opencv-python>=4.8.0
+Pillow>=10.0.0
+
+# SAM 3 (Segment Anything Model 3)
+# Install via:
+#   git clone https://github.com/facebookresearch/sam3.git
+#   cd sam3 && pip install -e .
+#   # Request access to checkpoints at SAM 3 HuggingFace repo
+#   # Authenticate: hf auth login
+# Additional dependencies for SAM 3:
+einops>=0.8.0
+pycocotools>=2.0.0
+psutil>=7.0.0
+
+# Claude API
+anthropic>=0.18.0
+
+# Configuration
+PyYAML>=6.0
+
+# Web Application
+Flask>=3.0.0
+

@@ -1,0 +1,85 @@
+# 1UP Configuration - Local Development
+
+camera:
+  # Source can be:
+  #   - Integer index (0, 1, 2...) for USB/webcam cameras
+  #   - RTSP URL string (e.g., "rtsp://user:pass@ip:port/stream") for IP cameras
+  source: 1  # Default: USB camera index 1. For Reolink RTSP, use: "rtsp://admin:Polic!ia1@192.168.1.188:8554/h264Preview_01_main"
+  resolution: [1920, 1080]  # For Reolink 4K, use: [3840, 2160]
+  fps: 5
+  buffer_size: 1  # Buffer size for RTSP streams (reduces latency, use 1 for live detection)
+  allow_iphone: true  # Set to true to allow iPhone/Continuity Camera (default: false to avoid interfering with phone)
+  # Note: If you set source to 1 or 2 (iPhone), it will be used even if allow_iphone is false
+  # If preferred camera not found, system will use any available camera as fallback
+  # For RTSP: Use source as full URL, resolution should match camera stream resolution
+  
+  # Image quality validation (mathematical blur detection)
+  quality_check:
+    enabled: true  # Enable automatic blur detection
+    min_sharpness: 20.0  # Laplacian variance threshold (images below this will be rejected)
+    warning_sharpness: 50.0  # Threshold for warning (images below this will show warning but continue)
+    # Sharpness scores: >100 = buena, 50-100 = aceptable (warning), 20-50 = borrosa (warning), <20 = muy borrosa (rechazar)
+  
+  # ⚠️ TEMPORAL: Smart autofocus for external USB camera
+  # TODO: Eliminar cuando se implemente app móvil o sistema automático
+  autofocus:
+    enabled: false  # Enable intelligent autofocus (TEMPORAL - only for external USB camera)
+    autofocus_delay: 2.0  # Seconds to wait after triggering autofocus
+    focus_attempts: 5  # Number of frames to capture to pick the sharpest
+    max_autofocus_attempts: 3  # Maximum autofocus attempts if image is blurry
+
+sam3:
+  device: "mps"  # Mac M2 GPU. Use "cuda" on NVIDIA, "cpu" on Pi
+  
+  # SAM 3 uses text prompts for concept-based detection
+  # Leave empty for automatic detection (uses "visual" prompt internally)
+  # Or specify concepts like: "bag", "shoes", "electronics", "furniture", "rectangle", "shape", "round", "dark object"
+  # Note: For better detection of dark/round objects (like kettlebell), try: "round object" or "dark object"
+  text_prompt: ""  # Empty = automatic detection, or specify concept
+  
+  # Image enhancement (improves detection of dark objects)
+  enhance_image: true  # CLAHE pre-processing - ACTIVADO para detectar objetos oscuros (kettlebell, etc.)
+  
+  # Smart filtering (PRE-Claude, MINIMAL - let Claude do intelligent filtering)
+  # FILOSOFÍA: "SAM detecta TODO, Claude decide qué entra"
+  # Filtros mínimos: solo eliminar duplicados exactos y objetos extremadamente pequeños
+  filtering:
+    enabled: false  # DISABLED - SAM detecta TODO, Claude decide
+    min_area: 50  # Minimum object area in pixels² (muy bajo para detectar TODO)
+    max_area_ratio: 0.9  # Maximum area as ratio of image (90%, permite objetos grandes)
+    min_aspect_ratio: 0.01  # Minimum width/height ratio (permite objetos muy alargados)
+    max_aspect_ratio: 50.0  # Maximum width/height ratio (permite objetos muy largos)
+    nms_iou_threshold: 0.9  # NMS threshold (muy alto, solo elimina duplicados exactos)
+  
+  # Pre-filtering before Claude analysis - DISABLED
+  # Claude will receive ALL objects detected by SAM
+  min_area_for_analysis: 0  # NO FILTER - send ALL objects to Claude
+  max_objects_for_analysis: 1000  # Send up to 1000 objects to Claude (sin límite práctico)
+
+claude:
+  api_key_env: "CLAUDE_API_KEY"  # Read from environment variable
+  model: "claude-sonnet-4-20250514"
+  max_tokens: 16000  # Increased for large batches (255 objects need ~15k tokens)
+  temperature: 0  # Deterministic output
+
+paths:
+  raw_images: "images/raw"
+  crops: "images/crops"
+  database: "database/objects.json"
+
+cleanup:
+  enabled: false  # Automatic cleanup disabled by default (scenes may be valuable long-term)
+  keep_days: 30  # If enabled, keep scenes from last N days
+  keep_useful_only: true  # Only keep crops from useful objects (in database)
+  # Note: Use cleanup_images.py manually if needed
+
+# Testing mode: Auto-delete images at startup only (for development/testing only)
+testing:
+  auto_cleanup: true  # ⚠️ TESTING MODE: Clean at startup, keep images during session
+  # Images are deleted at startup, but kept during session for web display
+  # Set to false to keep images permanently
+
+logging:
+  level: "INFO"  # DEBUG | INFO | WARNING | ERROR
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+

@@ -1,0 +1,134 @@
+# 1UP - Development Rules
+
+## Rule #1: Maximum 350 lines per file
+**NO EXCEPTIONS.** If a file approaches 350 lines:
+1. Stop writing
+2. Refactor into modules
+3. Each module = ONE clear responsibility
+
+## Rule #2: Auto-update .cursorrules
+When making important changes (new technology, new architecture, new convention):
+1. **UPDATE .cursorrules AUTOMATICALLY**
+2. Add comment in commit: `Updated .cursorrules: [reason]`
+
+## Rule #3: Multi-platform from day 1
+Code must work on:
+- ✅ Mac M2 (development)
+- ✅ Raspberry Pi (production)
+- ✅ Future: Mobile app
+
+Use platform detection:
+```python
+import platform
+
+if platform.machine().startswith('arm'):
+    # Raspberry Pi
+    from picamera2 import Picamera2
+else:
+    # Mac / Desktop
+    import cv2
+```
+
+## Rule #4: Configuration, never hardcode
+**NEVER**:
+```python
+camera_index = 1  # ❌ Hardcoded
+threshold = 2500  # ❌ Hardcoded
+api_key = "sk-ant-..."  # ❌ NEVER API keys in code
+```
+
+**ALWAYS**:
+```python
+config = load_yaml('config.yaml')
+camera_index = config['camera']['index']
+threshold = config['detection']['threshold']
+api_key = os.environ.get('CLAUDE_API_KEY')
+```
+
+## Rule #5: Type hints + Error handling + Logging
+**Type hints** (mandatory):
+```python
+def detect_objects(image: np.ndarray) -> List[Dict[str, Any]]:
+    pass
+```
+
+**Error handling** (mandatory):
+```python
+try:
+    result = claude_api.analyze(image)
+except APIError as e:
+    logger.error(f"Claude API failed: {e}")
+    return default_analysis
+except Exception as e:
+    logger.exception("Unexpected error")
+    raise
+```
+
+**Logging** (no print()):
+```python
+import logging
+logger = logging.getLogger(__name__)
+logger.info("Processing image", extra={"image_id": img_id})
+```
+
+## Architecture
+- detector.py: SAM 3 object detection only
+- analyzer.py: Claude vision analysis only (1 image + bboxes, NOT individual crops)
+- main.py: Pipeline orchestration only
+- config.yaml: Central configuration
+- database/objects.json: Simple JSON database
+
+## Claude Analysis Architecture (CRITICAL)
+**CORRECT**: Send ONLY 1 scene image + bounding box coordinates in text
+- ✅ 1 API call per capture
+- ✅ ~$0.003 per capture
+- ✅ Fast (1 API call)
+
+**WRONG**: Sending scene + individual crops (170+ images)
+- ❌ Very expensive ($0.50+ per capture)
+- ❌ Multiple API calls needed
+- ❌ Slow
+
+**Implementation**:
+- `analyzer.analyze_scene_with_bboxes()` sends: 1 scene image + list of bboxes in text
+- Crops are generated for thumbnails (web display) but NOT sent to Claude
+- Claude analyzes regions directly in the scene image using bbox coordinates
+
+## Stack
+- Detection: SAM 3 (Segment Anything Model 3) - Real SAM 3 from Meta
+  - Text prompts for concept-based detection
+  - Open-vocabulary segmentation
+  - Install: git clone https://github.com/facebookresearch/sam3.git && cd sam3 && pip install -e .
+  - Requires access to checkpoints on HuggingFace
+- Analysis: Claude Sonnet 4
+- Camera: OpenCV (cv2) - Optional for MVP
+- Database: JSON files (simple, easy to migrate to PostgreSQL)
+- Config: YAML
+
+## Project Goals
+
+### MVP (Current Phase)
+**Objective**: Multi-object detection from a photo → Ecommerce-ready output
+1. Take a photo (manual input)
+2. Detect multiple objects (SAM 3) → Generate bounding boxes
+3. Crop each object → Generate thumbnails (for web display only)
+4. Analyze scene with Claude (1 image + bbox list) → Description, category, condition, price
+5. Generate ecommerce-ready data (thumbnails + text descriptions)
+
+**Claude Analysis**: 
+- Input: 1 scene image + bounding box coordinates (text)
+- Output: JSON array with analysis for each detected object
+- Cost: ~$0.003 per capture (1 API call, 1 image)
+
+**Output Format**: JSON/CSV with thumbnails and descriptions ready for ecommerce platforms
+
+### Long-term Goals
+- Mobile app integration (user takes photo → auto-upload to ecommerce)
+- Automated punto limpio system (camera detects → processes → publishes)
+
+## Rule #6: Keep Documentation Updated
+When project goals, architecture, or context changes:
+1. **UPDATE .cursorrules AUTOMATICALLY**
+2. **UPDATE relevant .md files in docs/**
+3. Add comment in commit: `Updated docs: [reason]`
+
