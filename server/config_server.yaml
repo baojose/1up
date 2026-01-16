@@ -2,7 +2,7 @@
 # Optimized for CUDA processing with maximum detection
 
 sam3:
-  device: "cpu"  # CPU for local testing, change to "cuda" for RunPod GPU
+  device: "cuda"  # CUDA for GPU processing on RunPod
   filtering:
     enabled: false  # Detect EVERYTHING, let Claude filter
   enhance_image: true  # CLAHE for dark objects
