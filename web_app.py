@@ -143,9 +143,9 @@ if __name__ == '__main__':
     objects_count = len(load_objects())
     logger.info(f"Loaded {objects_count} objects")
     logger.info("")
-    logger.info("Starting server on http://localhost:5001")
+    logger.info("Starting server on http://localhost:5002")
     logger.info("Press Ctrl+C to stop")
     logger.info("=" * 60)
     
-    app.run(host='0.0.0.0', port=5001, debug=True)
+    app.run(host='0.0.0.0', port=5002, debug=True)
 

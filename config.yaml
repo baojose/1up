@@ -1,12 +1,24 @@
 # 1UP Configuration - Local Development
+# ⚠️ CONFIGURACIÓN ACTUAL: Mac Intel + CPU + Stream 4K HEVC (Máxima Calidad para Crops)
+# Los errores HEVC son warnings de FFmpeg, no bloquean el procesamiento
+# SAM 3 procesa a 720p (optimización), pero crops se extraen del 4K original
+# Ver docs/4K_HEVC_SOLUCION.md para detalles completos
 
 camera:
   # Source can be:
   #   - Integer index (0, 1, 2...) for USB/webcam cameras
   #   - RTSP URL string (e.g., "rtsp://user:pass@ip:port/stream") for IP cameras
-  source: 1  # Default: USB camera index 1. For Reolink RTSP, use: "rtsp://admin:Polic!ia1@192.168.1.188:8554/h264Preview_01_main"
-  resolution: [1920, 1080]  # For Reolink 4K, use: [3840, 2160]
-  fps: 5
+  # 
+  # ⚠️ IMPORTANTE: Mac Intel (2018) tiene MUCHOS problemas decodificando HEVC 4K
+  # - Stream main (4K HEVC): h264Preview_01_main - Errores HEVC, frames corruptos, muy lento (30s+ por frame)
+  # - Stream sub (1080p H.264): h264Preview_01_sub - Estable, sin errores, frames limpios
+  #
+  # ✅ CONFIGURACIÓN ACTUAL: 1080p H.264 para estabilidad (elimina errores HEVC y pixelación)
+  # 1080p sigue siendo excelente calidad para crops, y SAM 3 funciona bien a esta resolución
+  # Para 4K: Cambiar a stream main + usar Mac Apple Silicon (M1/M2/M3) con MPS
+  source: "rtsp://admin:Polic!ia1@192.168.1.188:8554/h264Preview_01_sub"  # Stream sub 1080p H.264 (estable, sin errores)
+  resolution: [1920, 1080]  # ⬇️ 1080p H.264 (estable en Mac Intel, elimina errores HEVC y pixelación)
+  fps: 5  # ✅ Aumentado a 5 (1080p H.264 es más rápido que 4K HEVC)
   buffer_size: 1  # Buffer size for RTSP streams (reduces latency, use 1 for live detection)
   allow_iphone: true  # Set to true to allow iPhone/Continuity Camera (default: false to avoid interfering with phone)
   # Note: If you set source to 1 or 2 (iPhone), it will be used even if allow_iphone is false
@@ -29,7 +41,14 @@ camera:
     max_autofocus_attempts: 3  # Maximum autofocus attempts if image is blurry
 
 sam3:
-  device: "mps"  # Mac M2 GPU. Use "cuda" on NVIDIA, "cpu" on Pi
+  # ⚠️ Mac Intel (2018) NO tiene MPS (Metal Performance Shaders) - usar CPU
+  # - Intel Macs (pre-2020): Solo CPU disponible
+  # - Apple Silicon (M1/M2/M3): Puede usar "mps" (más rápido) o "cpu"
+  # - NVIDIA GPUs: Usar "cuda"
+  #
+  # 🔄 Para usar MPS (solo Mac Apple Silicon):
+  #    device: "mps"  # Cambiar a "mps" si tienes Mac M1/M2/M3
+  device: "cpu"  # Mac Intel usa CPU (funciona pero más lento que MPS)
   
   # SAM 3 uses text prompts for concept-based detection
   # Leave empty for automatic detection (uses "visual" prompt internally)

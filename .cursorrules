@@ -13,20 +13,32 @@ When making important changes (new technology, new architecture, new convention)
 
 ## Rule #3: Multi-platform from day 1
 Code must work on:
-- ✅ Mac M2 (development)
-- ✅ Raspberry Pi (production)
+- ✅ Mac Intel (2018) - CPU + Stream 1080p H.264 (Pruebas)
+- ✅ Mac Apple Silicon (M1/M2/M3) - MPS + Stream 4K HEVC (Producción)
+- ✅ Raspberry Pi (production) - CPU
 - ✅ Future: Mobile app
+
+**⚠️ IMPORTANTE:** Mac Intel NO tiene MPS (Metal Performance Shaders).  
+**Ver:** [docs/HARDWARE_CONFIG.md](docs/HARDWARE_CONFIG.md) para configuración de hardware.
 
 Use platform detection:
 ```python
 import platform
 
-if platform.machine().startswith('arm'):
-    # Raspberry Pi
+# Detect Apple Silicon vs Intel
+is_apple_silicon = platform.processor() == 'arm' or 'arm64' in platform.machine().lower()
+
+if is_apple_silicon:
+    # Apple Silicon (M1/M2/M3) - Puede usar MPS
+    device = "mps" if torch.backends.mps.is_available() else "cpu"
+elif platform.machine().startswith('arm'):
+    # Raspberry Pi - CPU
     from picamera2 import Picamera2
+    device = "cpu"
 else:
-    # Mac / Desktop
+    # Mac Intel o Desktop - CPU (no tiene MPS)
     import cv2
+    device = "cpu"
 ```
 
 ## Rule #4: Configuration, never hardcode
@@ -100,10 +112,28 @@ logger.info("Processing image", extra={"image_id": img_id})
   - Open-vocabulary segmentation
   - Install: git clone https://github.com/facebookresearch/sam3.git && cd sam3 && pip install -e .
   - Requires access to checkpoints on HuggingFace
-- Analysis: Claude Sonnet 4
-- Camera: OpenCV (cv2) - Optional for MVP
+  - **Device:** CPU (Mac Intel) o MPS (Apple Silicon) o CUDA (NVIDIA)
+  - **Optimización:** Reduce a 720p antes de SAM 3 en Mac Intel, escala bboxes/máscaras después
+- Analysis: Claude Sonnet 4 (1 imagen + bboxes, ~$0.003 por captura)
+- Camera: 
+  - **Producción:** Reolink RLC-810A RTSP (4K HEVC para Apple Silicon, 1080p H.264 para Intel)
+  - **Pruebas actual:** Stream sub 1080p H.264 (más estable que 4K HEVC en Mac Intel)
+  - **Desarrollo:** OpenCV (cv2) con webcams USB
 - Database: JSON files (simple, easy to migrate to PostgreSQL)
 - Config: YAML
+- **Crops:** Estandarizados 512x512 píxeles, objeto centrado, aspect ratio preservado
+
+## CONFIGURACIÓN HUGGING FACE
+- Token configurado: HF_TOKEN (variable entorno)
+- Necesario para descargar modelos SAM3
+- Si código necesita autenticación HF, usar: `os.environ.get('HF_TOKEN')`
+- Token guardado en: `.hf_token` (archivo local, gitignored)
+- Ubicación por defecto HuggingFace: `~/.huggingface/token`
+- El sistema busca token en este orden:
+  1. Variable de entorno `HF_TOKEN`
+  2. Archivo `.hf_token` en proyecto
+  3. `~/.huggingface/token` (default)
+- Ver función `download_ckpt_from_hf()` en `sam3/sam3/model_builder.py`
 
 ## Project Goals
 
@@ -132,3 +162,12 @@ When project goals, architecture, or context changes:
 2. **UPDATE relevant .md files in docs/**
 3. Add comment in commit: `Updated docs: [reason]`
 
+## CONFIGURACIÓN ACTUAL (PRUEBAS)
+**Hardware:** MacBook Pro 15" 2018 (Intel Core i9)  
+**Device:** CPU (Mac Intel no tiene MPS)  
+**Stream:** Sub 1080p H.264 (más estable que 4K HEVC en Mac Intel)  
+**Crops:** Estandarizados 512x512 píxeles, objeto centrado  
+**Preview:** Canvas fijo 1280x720 para evitar pixelación**Para volver a configuración anterior (4K + MPS):**
+- Cambiar a Mac Apple Silicon (M1/M2/M3)
+- Editar config.yaml: stream main (4K HEVC) + device: "mps"
+- Ver docs/HARDWARE_CONFIG.md para guía completa

@@ -1,0 +1,20 @@
+# 1UP Client Configuration - Local Capture
+# Captures frames and sends to server for processing
+
+camera:
+  # Reolink RTSP stream (4K for maximum quality)
+  source: "rtsp://admin:Polic!ia1@192.168.1.188:8554/h264Preview_01_main"
+  resolution: [3840, 2160]  # 4K for maximum crop quality
+  fps: 2
+  buffer_size: 1  # Low latency for RTSP
+  
+  # Image quality validation
+  quality_check:
+    enabled: true
+    min_sharpness: 20.0  # Reject blurry frames
+    warning_sharpness: 50.0
+
+server:
+  # RunPod server URL (update with your RunPod endpoint)
+  url: "http://localhost:8000"  # Default local, update to RunPod IP:port
+  timeout: 120  # 2 minutes timeout for processing

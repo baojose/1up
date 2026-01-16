@@ -1,36 +1,55 @@
-# 🍄 1UP - Multi-Object Detection for Ecommerce
+# 🍄 1UP - Sistema Automático de Reconocimiento de Objetos para Puntos Limpios
 
-Sistema de detección automática de múltiples objetos en una foto para generar datos listos para ecommerce.
+Sistema automático de reconocimiento de objetos para puntos limpios (centros de reciclaje) en Madrid que promueve economía circular.
 
 ## 📖 ¿Qué es 1UP?
 
-1UP detecta múltiples objetos en una foto, los analiza con IA, y genera datos listos para subir a plataformas de ecommerce.
+1UP es un sistema que detecta automáticamente objetos funcionales depositados en puntos limpios, los analiza con IA, y los publica en un marketplace para darles segunda vida.
 
-**Flujo MVP (OPTIMIZADO):**
-1. 📸 Toma una foto (manual por ahora)
-2. 🔍 **SAM 3** detecta TODOS los objetos en la imagen (máscaras y bboxes, **sin nombres**) - **Una sola vez**
-3. 🤖 **Claude Sonnet 4** valida y analiza objetos (**identifica qué son**: descripción, categoría, condición, precio)
-4. ✂️ Genera crops/thumbnails **SOLO para objetos útiles** (después de Claude)
-5. 📦 Genera datos listos para ecommerce (JSON/CSV + thumbnails)
+**🎯 Objetivo:** Objetos funcionales NO van a basura → Segunda vida (1UP 🍄)
+
+**Flujo Completo del Sistema:**
+1. 👤 Usuario deposita objeto funcional en zona "AÚN FUNCIONA" del punto limpio
+2. 📹 **Cámara Reolink RLC-810A** (exterior, 24/7) captura foto automática (1080p para pruebas, 4K para producción)
+3. 🔍 **SAM 3** detecta TODOS los objetos en la imagen (máscaras y bboxes) - **Una sola vez**
+4. ✂️ Sistema genera crops individuales estandarizados (512x512, objeto centrado)
+5. 🤖 **Claude Sonnet 4** analiza 1 imagen completa + lista de bboxes (eficiente, ~$0.003 por captura):
+   - Identifica objeto (nombre específico)
+   - Evalúa condición (excellent/good/fair/poor)
+   - Estima precio
+   - Decide si es útil (useful="yes/no")
+6. 📦 Crops útiles se suben a website/marketplace
+7. 👥 Personas reservan y recogen objetos gratis
 
 **⚠️ Nota:** SAM 3 detecta **dónde** están los objetos, pero **Claude identifica QUÉ son** (nombres, categorías, etc.)
 
-## 🎯 Objetivo Actual: MVP para Ecommerce
+## 🎯 Estado Actual: MVP Funcional (Pruebas)
 
-**Input**: Una foto con múltiples objetos  
+**Hardware actual:** Mac Intel (2018) + CPU + Stream 1080p  
+**Configuración:** Optimizada para pruebas en ordenador más lento  
+**Ver:** [docs/HARDWARE_CONFIG.md](docs/HARDWARE_CONFIG.md) para volver a 4K/MPS si es necesario
+
+**Input**: Foto automática de cámara Reolink (1080p para pruebas, 4K para producción) o manual  
 **Output**: 
-- Thumbnails de cada objeto detectado
+- Thumbnails estandarizados (512x512, objeto centrado) de cada objeto útil detectado
 - Descripciones en texto de cada objeto
 - Metadata (categoría, condición, precio estimado)
-- Formato listo para subir a ecommerce
+- Formato listo para marketplace/web
 
 ## 🚀 Inicio Rápido
 
-### Setup (requiere Python 3.12)
+### Setup (requiere Python 3.12.10)
+
+**⚠️ IMPORTANTE:** PyTorch no soporta Python 3.14. El proyecto requiere **Python 3.12.10**.
 
 ```bash
-# Instalar Python 3.12 si no lo tienes
-brew install python@3.12
+# Instalar Python 3.12.10 desde python.org (recomendado)
+# Descarga: https://www.python.org/downloads/release/python-31210/
+# Mac Intel: python-3.12.10-macos11.pkg
+# Mac M1/M2: python-3.12.10-macos11-arm64.pkg
+
+# Verificar instalación
+python3.12 --version  # Debería mostrar: Python 3.12.10
 
 # Crear entorno virtual
 python3.12 -m venv venv
@@ -40,28 +59,59 @@ source venv/bin/activate
 bash setup_venv.sh
 ```
 
+📖 **Ver [docs/PYTHON_SETUP.md](docs/PYTHON_SETUP.md) para guía detallada de instalación**
+
 ### Uso Básico
 
 ```bash
-# Detección en vivo con cámara + análisis Claude (recomendado)
+# Detección en vivo con cámara Reolink + análisis Claude (recomendado)
 export CLAUDE_API_KEY='sk-ant-api03-...'
 ./run_live_detection_with_claude.sh
 
 # Detección en vivo sin Claude (solo visual)
 ./run_live_detection.sh
 
-# Procesar una imagen
+# Procesar una imagen estática
 python3 main.py --image foto.jpg
 
 # Modo interactivo completo (con Claude)
 export CLAUDE_API_KEY='sk-ant-api03-...'
 python3 main.py
 
-# Ver objetos en web e-commerce (nuevo!)
+# Ver objetos en web marketplace
 ./run_web.sh
 # Luego abre: http://localhost:5001
 # (Puerto 5000 suele estar ocupado por AirPlay en macOS)
 ```
+
+### Configuración Cámara Reolink
+
+**Configuración actual (Pruebas - Mac Intel):**
+```yaml
+camera:
+  source: "rtsp://admin:PASSWORD@192.168.1.188:8554/h264Preview_01_sub"  # Stream sub 1080p H.264
+  resolution: [1920, 1080]  # 1080p (más estable que 4K HEVC en Mac Intel)
+  fps: 3
+  buffer_size: 1
+
+sam3:
+  device: "cpu"  # Mac Intel no tiene MPS
+```
+
+**Para volver a 4K (solo Mac Apple Silicon):**
+```yaml
+camera:
+  source: "rtsp://admin:PASSWORD@192.168.1.188:8554/h264Preview_01_main"  # Stream main 4K HEVC
+  resolution: [3840, 2160]  # 4K
+  fps: 3
+  buffer_size: 1
+
+sam3:
+  device: "mps"  # Apple Silicon tiene MPS (más rápido)
+```
+
+**Nota:** El sistema también funciona con webcams USB (índice numérico) para desarrollo.  
+📖 Ver [docs/HARDWARE_CONFIG.md](docs/HARDWARE_CONFIG.md) para detalles completos.
 
 📖 **Ver [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) para guía completa**  
 📖 **Ver [docs/LIVE_DETECTION.md](docs/LIVE_DETECTION.md) para detección en vivo**
@@ -105,19 +155,23 @@ python3 main.py
 
 ### ✅ Fase 1: MVP (Actual)
 - [x] Detección múltiple de objetos (SAM 3)
-- [x] Análisis con Claude
+- [x] Análisis con Claude Sonnet 4
 - [x] Generación de crops/thumbnails
-- [x] Formato de salida para ecommerce (JSON)
-- [x] **Web app e-commerce local** 🎉
+- [x] Formato de salida para marketplace (JSON)
+- [x] **Web app marketplace local** 🎉
+- [x] **Integración cámara Reolink RTSP** ✅
 
-### 🔜 Fase 2: Integración
+### 🔜 Fase 2: Producción
+- [ ] Captura automática 24/7 desde Reolink
 - [ ] Integración con plataformas de ecommerce (Shopify, WooCommerce, etc.)
 - [ ] API REST para subir productos
-- [ ] Batch processing de múltiples fotos
+- [ ] Sistema de reservas y recogida
+- [ ] Migración a PostgreSQL
 
 ### 🚀 Fase 3: Escalado
-- [ ] App móvil (usuario toma foto → auto-upload)
-- [ ] Sistema automático punto limpio (cámara → detección → publicación)
+- [ ] Múltiples puntos limpios (federación)
+- [ ] App móvil (usuario reserva → recoge)
+- [ ] Sistema automático completo (cámara → detección → publicación → notificaciones)
 
 ## ⚙️ Stack Tecnológico
 
@@ -126,11 +180,16 @@ python3 main.py
   - Open-vocabulary segmentation
   - Install: `git clone https://github.com/facebookresearch/sam3.git && cd sam3 && pip install -e .`
   - Requires access to checkpoints on HuggingFace
-- **Análisis**: Claude Sonnet 4
-- **Cámara**: OpenCV (cv2) - Opcional para MVP
-- **Base de datos**: JSON files
-- **Web**: Flask (aplicación e-commerce local)
+  - **Device:** CPU (Mac Intel) o MPS (Apple Silicon) o CUDA (NVIDIA)
+- **Análisis**: Claude Sonnet 4 (1 imagen + bboxes, ~$0.003 por captura)
+- **Cámara**: 
+  - **Producción**: Reolink RLC-810A (RTSP, 4K HEVC para Apple Silicon, 1080p H.264 para Intel)
+  - **Pruebas actual**: Stream sub 1080p H.264 (más estable en Mac Intel)
+  - **Desarrollo**: OpenCV (cv2) con webcams USB
+- **Base de datos**: JSON files (fácil migración a PostgreSQL)
+- **Web**: Flask (marketplace local, futuro: producción)
 - **Config**: YAML
+- **Crops**: Estandarizados 512x512 píxeles, objeto centrado
 
 ## 📚 Documentación
 
@@ -147,13 +206,16 @@ Ver `docs/README.md` para índice completo.
 
 ## 🐛 Problemas Comunes
 
-### Python 3.14 no compatible
+### Python 3.14 no compatible con PyTorch
 
-Usa Python 3.12:
+Usa Python 3.12.10:
 ```bash
-brew install python@3.12
+# Descarga desde python.org: https://www.python.org/downloads/release/python-31210/
+python3.12 --version  # Debe mostrar: Python 3.12.10
 python3.12 -m venv venv
 ```
+
+📖 Ver [docs/PYTHON_SETUP.md](docs/PYTHON_SETUP.md) para instrucciones detalladas.
 
 ### "CLAUDE_API_KEY not set"
 

@@ -1,0 +1,30 @@
+# 1UP Server Dependencies - RunPod GPU
+# Install with: pip install -r server/requirements_server.txt
+
+# Core ML/AI
+torch>=2.0.0
+torchvision>=0.15.0
+
+# Computer Vision
+opencv-python>=4.8.0
+Pillow>=10.0.0
+
+# SAM 3 (Segment Anything Model 3)
+einops>=0.8.0
+pycocotools>=2.0.0
+psutil>=7.0.0
+omegaconf>=2.3.0
+
+# Claude API
+anthropic>=0.18.0
+
+# Configuration
+PyYAML>=6.0
+
+# FastAPI
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+pydantic>=2.0.0
+
+# HTTP client (for health checks)
+httpx>=0.25.0

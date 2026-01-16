@@ -208,9 +208,14 @@ sam3:
 
 ### Detección muy lenta
 
-1. **Usa MPS** (Mac) o **CUDA** (NVIDIA) en lugar de CPU
-2. **Reduce `text_prompt`** - Detección automática es más rápida
-3. **Ajusta `filtering.enabled`** - Activa filtros de SAM si necesitas reducir detecciones
+1. **Mac Intel:** Usa CPU (no tiene MPS disponible) - Es más lento pero funciona
+2. **Mac Apple Silicon:** Usa MPS en lugar de CPU (`device: "mps"`)
+3. **NVIDIA:** Usa CUDA en lugar de CPU (`device: "cuda"`)
+4. **Reduce `text_prompt`** - Detección automática es más rápida
+5. **Ajusta `filtering.enabled`** - Activa filtros de SAM si necesitas reducir detecciones
+
+**⚠️ IMPORTANTE:** Mac Intel (2018) NO tiene MPS - usar CPU es normal y esperado.  
+📖 Ver [docs/HARDWARE_CONFIG.md](HARDWARE_CONFIG.md) para detalles sobre dispositivos.
 
 ## 📚 Más Información
 

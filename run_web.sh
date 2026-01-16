@@ -29,8 +29,8 @@ fi
 
 # Run web application
 echo "🌐 Starting 1UP Web Application..."
-echo "📍 Server will be available at: http://localhost:5001"
-echo "   (Port 5000 is often used by AirPlay on macOS)"
+echo "📍 Server will be available at: http://localhost:5002"
+echo "   (Port 5001 was in use, using 5002 instead)"
 echo "Press Ctrl+C to stop"
 echo ""
 

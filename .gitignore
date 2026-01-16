@@ -35,6 +35,9 @@ images/crops/*
 !images/raw/.gitkeep
 !images/crops/.gitkeep
 
+# Test images (temporary/debugging)
+images/test/*
+
 # Database
 database/objects.json
 
@@ -53,6 +56,7 @@ Thumbs.db
 .env
 .env.local
 .claude_api_key
+.hf_token
 
 # Logs
 *.log

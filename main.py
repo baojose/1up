@@ -328,28 +328,28 @@ class Pipeline:
             logger.info(f"✅ Camera opened ({actual_w}x{actual_h})")
         else:
             # USB/webcam camera - use existing detection logic
-            try:
+        try:
                 from camera_utils import find_external_camera, enumerate_cameras, open_camera
                 import platform
-                
-                logger.info("Detecting available cameras...")
-                cameras = enumerate_cameras()
-                
-                if cameras:
-                    preferred_index = int(camera_source) if isinstance(camera_source, (int, str)) and str(camera_source).isdigit() else camera_source
-                    camera_index = find_external_camera(preferred_index=preferred_index)
-                    if camera_index is None:
-                        camera_index = int(camera_source) if isinstance(camera_source, (int, str)) and str(camera_source).isdigit() else self.config['camera'].get('index', 1)
-                else:
-                    camera_index = int(camera_source) if isinstance(camera_source, (int, str)) and str(camera_source).isdigit() else self.config['camera'].get('index', 1)
-                    logger.warning(f"No cameras auto-detected, using config index {camera_index}")
-            except ImportError:
-                # Fallback if camera_utils not available
-                camera_index = int(camera_source) if isinstance(camera_source, (int, str)) and str(camera_source).isdigit() else self.config['camera'].get('index', 1)
-                logger.info(f"Using camera index from config: {camera_index}")
             
+            logger.info("Detecting available cameras...")
+            cameras = enumerate_cameras()
+            
+            if cameras:
+                    preferred_index = int(camera_source) if isinstance(camera_source, (int, str)) and str(camera_source).isdigit() else camera_source
+                camera_index = find_external_camera(preferred_index=preferred_index)
+                if camera_index is None:
+                        camera_index = int(camera_source) if isinstance(camera_source, (int, str)) and str(camera_source).isdigit() else self.config['camera'].get('index', 1)
+            else:
+                    camera_index = int(camera_source) if isinstance(camera_source, (int, str)) and str(camera_source).isdigit() else self.config['camera'].get('index', 1)
+                logger.warning(f"No cameras auto-detected, using config index {camera_index}")
+        except ImportError:
+            # Fallback if camera_utils not available
+                camera_index = int(camera_source) if isinstance(camera_source, (int, str)) and str(camera_source).isdigit() else self.config['camera'].get('index', 1)
+            logger.info(f"Using camera index from config: {camera_index}")
+        
             # Open camera using open_camera() function
-            logger.info(f"Opening camera {camera_index}...")
+        logger.info(f"Opening camera {camera_index}...")
             from camera_utils import open_camera
             import platform
             
@@ -359,10 +359,10 @@ class Pipeline:
                 resolution=resolution,
                 backend=backend
             )
-            
+        
             if cap is None:
-                raise RuntimeError(f"Failed to open camera {camera_index}")
-            
+            raise RuntimeError(f"Failed to open camera {camera_index}")
+        
             actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
             logger.info(f"✅ Camera opened ({actual_w}x{actual_h})")

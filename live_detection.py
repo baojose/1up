@@ -9,6 +9,8 @@ import yaml
 import logging
 import os
 import tempfile
+import time
+import numpy as np
 from pathlib import Path
 from typing import List, Dict, Any
 
@@ -22,8 +24,8 @@ try:
     # NOTE: hybrid_detector is temporarily disabled (causes original_index issues)
     # from hybrid_detector import HybridDetector
     from camera_utils import find_external_camera, enumerate_cameras, open_camera
-    from storage import ImageStorage
-    from storage_v2 import save_crops_for_useful_objects
+    from storage import ImageStorage  # Used for save_scene() and create_display_frame()
+    from storage_v2 import save_crops_for_useful_objects  # Used for generating crops after Claude
     import json
     from datetime import datetime
     print("✅ Imports loaded successfully", flush=True)
@@ -156,13 +158,13 @@ def live_detection():
     """Live camera feed with on-demand object detection."""
     
     try:
-        # Load config
+    # Load config
         logger.info("="*60)
         logger.info("Starting live detection...")
         logger.info("="*60)
-        logger.info("Loading configuration...")
-        with open("config.yaml") as f:
-            config = yaml.safe_load(f)
+    logger.info("Loading configuration...")
+    with open("config.yaml") as f:
+        config = yaml.safe_load(f)
         logger.info("✅ Configuration loaded")
     except FileNotFoundError:
         logger.error("❌ config.yaml not found!")
@@ -244,78 +246,78 @@ def live_detection():
         
     else:
         # USB/webcam camera - use existing detection logic
-        logger.info("\n" + "="*60)
-        logger.info("Detecting cameras...")
-        logger.info("="*60)
-        
+    logger.info("\n" + "="*60)
+    logger.info("Detecting cameras...")
+    logger.info("="*60)
+    
         preferred_index = int(camera_source) if isinstance(camera_source, (int, str)) and str(camera_source).isdigit() else camera_source
-        allow_iphone = config['camera'].get('allow_iphone', False)
-        logger.info(f"Config specifies camera index: {preferred_index}")
-        logger.info(f"Allow iPhone/Continuity Camera: {allow_iphone}")
-        
+    allow_iphone = config['camera'].get('allow_iphone', False)
+    logger.info(f"Config specifies camera index: {preferred_index}")
+    logger.info(f"Allow iPhone/Continuity Camera: {allow_iphone}")
+    
         logger.info("Enumerating cameras (this may take a few seconds)...")
-        cameras = enumerate_cameras(allow_iphone=allow_iphone)
+    cameras = enumerate_cameras(allow_iphone=allow_iphone)
         logger.info(f"✅ Camera enumeration complete: {len(cameras)} camera(s) found")
-        if not cameras:
-            logger.error("No cameras found!")
-            logger.error("Please connect a camera and try again")
+    if not cameras:
+        logger.error("No cameras found!")
+        logger.error("Please connect a camera and try again")
+        return
+    
+    # Use smart detection (by name first, then fallback to index)
+    logger.info("Using smart camera detection (by name preferred)...")
+    camera_index = find_external_camera(preferred_index=preferred_index, allow_iphone=allow_iphone)
+    
+    if camera_index is None:
+        # Fallback: use first available camera (even if it's built-in)
+        if cameras:
+            camera_index = cameras[0]['index']
+            logger.warning(f"⚠️  No external camera found, using available camera {camera_index}")
+            logger.warning(f"   (This may be the built-in camera)")
+        else:
+            logger.error("Could not find any camera")
             return
-        
-        # Use smart detection (by name first, then fallback to index)
-        logger.info("Using smart camera detection (by name preferred)...")
-        camera_index = find_external_camera(preferred_index=preferred_index, allow_iphone=allow_iphone)
-        
-        if camera_index is None:
-            # Fallback: use first available camera (even if it's built-in)
-            if cameras:
-                camera_index = cameras[0]['index']
-                logger.warning(f"⚠️  No external camera found, using available camera {camera_index}")
-                logger.warning(f"   (This may be the built-in camera)")
-            else:
-                logger.error("Could not find any camera")
-                return
-        
-        # Log which camera was selected
-        for cam in cameras:
-            if cam['index'] == camera_index:
-                logger.info(f"✅ Selected camera {camera_index}: {cam['width']}x{cam['height']}")
-                break
-        
+    
+    # Log which camera was selected
+    for cam in cameras:
+        if cam['index'] == camera_index:
+            logger.info(f"✅ Selected camera {camera_index}: {cam['width']}x{cam['height']}")
+            break
+    
         # Open camera using open_camera() function
-        logger.info(f"\nOpening camera {camera_index}...")
+    logger.info(f"\nOpening camera {camera_index}...")
         backend = cv2.CAP_AVFOUNDATION if platform.system() == 'Darwin' else None
         cap = open_camera(
             source=camera_index,
             resolution=resolution,
             backend=backend
         )
-        
+    
         if cap is None:
-            logger.error(f"Failed to open camera {camera_index}")
-            return
-        
-        # Wait a bit for camera to initialize
-        time.sleep(0.5)
-        
-        # Read a few frames to "warm up" the camera and keep it active
-        logger.info("Warming up camera...")
-        warmup_success = False
-        for i in range(10):
-            ret, _ = cap.read()
-            if ret:
-                warmup_success = True
-                break
-            time.sleep(0.1)
-        
-        if not warmup_success:
-            logger.error("⚠️  Camera opened but cannot read frames during warmup")
-            logger.error("   This may be a permissions issue or the camera is in use by another app")
-            logger.error("   Try:")
-            logger.error("   1. Check System Preferences > Security & Privacy > Camera")
-            logger.error("   2. Close other apps using the camera")
-            logger.error("   3. Try a different camera index")
-            cap.release()
-            return
+        logger.error(f"Failed to open camera {camera_index}")
+        return
+    
+    # Wait a bit for camera to initialize
+    time.sleep(0.5)
+    
+    # Read a few frames to "warm up" the camera and keep it active
+    logger.info("Warming up camera...")
+    warmup_success = False
+    for i in range(10):
+        ret, _ = cap.read()
+        if ret:
+            warmup_success = True
+            break
+        time.sleep(0.1)
+    
+    if not warmup_success:
+        logger.error("⚠️  Camera opened but cannot read frames during warmup")
+        logger.error("   This may be a permissions issue or the camera is in use by another app")
+        logger.error("   Try:")
+        logger.error("   1. Check System Preferences > Security & Privacy > Camera")
+        logger.error("   2. Close other apps using the camera")
+        logger.error("   3. Try a different camera index")
+        cap.release()
+        return
     
     # Verify resolution
     actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -446,12 +448,37 @@ def live_detection():
         max_failures = 10
         first_frame_logged = False
         
+        # For RTSP streams, add timeout handling to prevent indefinite blocking
+        is_rtsp = isinstance(camera_source, str) and camera_source.startswith('rtsp://')
+        frame_timeout = 5.0 if is_rtsp else 1.0  # Longer timeout for RTSP
+        
+        import time
         while True:
+            # For RTSP, implement timeout to prevent indefinite blocking
+            frame_start_time = time.time()
             ret, frame = cap.read()
+            frame_read_time = time.time() - frame_start_time
+            
+            # Log if read took too long (warns about potential issues)
+            # ⚠️ IMPORTANTE: Para 4K HEVC en Mac Intel, frames pueden tardar 5-15s
+            # Los errores HEVC son warnings de FFmpeg, no bloquean, pero ralentizan
+            if is_rtsp and frame_read_time > 3.0:
+                if frame_read_time > 10.0:
+                    logger.warning(f"⚠️  Frame read took {frame_read_time:.1f}s (4K HEVC decoding on Mac Intel)")
+                    logger.debug("   ⚠️  HEVC errors in logs are warnings, not fatal - processing continues")
+                else:
+                    logger.warning(f"⚠️  Frame read took {frame_read_time:.1f}s (RTSP may be slow or unstable)")
+            
             if not ret:
                 consecutive_failures += 1
                 if consecutive_failures >= max_failures:
                     logger.error(f"Failed to read frame {max_failures} times in a row")
+                    if is_rtsp:
+                        logger.error("RTSP stream may have disconnected")
+                        logger.error("  - Check camera network connection")
+                        logger.error("  - Verify camera is online and accessible")
+                        logger.error("  - Try reducing resolution or FPS in config.yaml")
+                    else:
                     logger.error("Camera may have disconnected or is in use by another app")
                     break
                 time.sleep(0.1)
@@ -505,8 +532,41 @@ def live_detection():
                 logger.warning("⚠️  Display frame is empty, skipping...")
                 continue
             
-            # Show frame
-            cv2.imshow('1UP Live Detection - SPACE=Detect, C=Clear, Q=Quit', display_frame)
+            # CRITICAL: Resize display frame for preview (4K is too large, causes pixelation)
+            # Use fixed window size to prevent OpenCV automatic scaling issues
+            display_h, display_w = display_frame.shape[:2]
+            target_preview_width = 1280  # Fixed preview width (HD)
+            target_preview_height = 720  # Fixed preview height (HD 16:9)
+            
+            # Calculate scale to fit within target while maintaining aspect ratio
+            scale_w = target_preview_width / display_w
+            scale_h = target_preview_height / display_h
+            scale = min(scale_w, scale_h, 1.0)  # Don't upscale, only downscale
+            
+            if scale < 1.0:
+                new_display_w = int(display_w * scale)
+                new_display_h = int(display_h * scale)
+                
+                # Resize with high-quality interpolation (LANCZOS4 is best for downscaling)
+                display_frame_preview = cv2.resize(
+                    display_frame,
+                    (new_display_w, new_display_h),
+                    interpolation=cv2.INTER_LANCZOS4  # Best quality for downscaling
+                )
+            else:
+                display_frame_preview = display_frame.copy()
+                new_display_w, new_display_h = display_w, display_h
+            
+            # Create fixed-size canvas with black background (prevents OpenCV window scaling issues)
+            canvas = np.zeros((target_preview_height, target_preview_width, 3), dtype=np.uint8)
+            
+            # Center the preview frame in the canvas
+            y_offset = (target_preview_height - new_display_h) // 2
+            x_offset = (target_preview_width - new_display_w) // 2
+            canvas[y_offset:y_offset + new_display_h, x_offset:x_offset + new_display_w] = display_frame_preview
+            
+            # Show fixed-size frame (prevents pixelation from OpenCV window scaling)
+            cv2.imshow('1UP Live Detection - SPACE=Detect, C=Clear, Q=Quit', canvas)
             
             key = cv2.waitKey(1) & 0xFF
             
@@ -555,6 +615,7 @@ def live_detection():
                     
                     # CRITICAL: Validate and fix original_index for all detections immediately after SAM
                     # This ensures original_index is always in valid range [0, len(current_detections))
+                    if current_detections:
                     logger.debug(f"🔍 Validating original_index for {len(current_detections)} detections...")
                     fixed_count = 0
                     for i, det in enumerate(current_detections):
@@ -569,6 +630,9 @@ def live_detection():
                         logger.debug(f"  ✅ All original_index values are valid")
                     
                     detection_frame = capture_frame.copy()
+                    else:
+                        logger.warning("⚠️  No objects detected")
+                        detection_frame = None
                     
                     # CRITICAL: Log detections IMMEDIATELY - use print AND logger to ensure visibility
                     print("\n" + "="*60)
@@ -594,6 +658,23 @@ def live_detection():
                         logger.info("="*60)
                         logger.info(f"✅ Total: {len(current_detections)} objetos detectados por SAM 3\n")
                     
+                except RuntimeError as e:
+                    error_msg = str(e)
+                    if "out of memory" in error_msg.lower() or "MPS" in error_msg:
+                        logger.error(f"❌ MPS out of memory: {error_msg}")
+                        logger.error("")
+                        logger.error("💡 SOLUCIÓN: SAM 3 requiere demasiada memoria en MPS")
+                        logger.error("")
+                        logger.error("Opciones:")
+                        logger.error("  1. Cambiar a CPU en config.yaml: sam3.device: 'cpu'")
+                        logger.error("  2. Reducir resolución cámara a 1080p en config.yaml")
+                        logger.error("  3. Procesar imágenes más pequeñas")
+                        logger.error("")
+                        logger.error("💡 CPU es más lento pero funciona (no hay límite de memoria)")
+                        current_detections = []
+                        detection_frame = None
+                    else:
+                        raise  # Re-raise if it's a different error
                 except Exception as e:
                     logger.error(f"❌ Error during detection: {e}")
                     logger.error("   This might be a device mismatch issue (CPU/MPS)")
@@ -1396,7 +1477,7 @@ if __name__ == "__main__":
         # Print immediately to verify script is running
         print("🚀 Starting live_detection.py...", flush=True)
         sys.stdout.flush()
-        live_detection()
+    live_detection()
     except KeyboardInterrupt:
         print("\n⚠️  Interrupted by user", flush=True)
         sys.exit(0)

@@ -1,0 +1,24 @@
+# 1UP Server Configuration - RunPod GPU
+# Optimized for CUDA processing with maximum detection
+
+sam3:
+  device: "cpu"  # CPU for local testing, change to "cuda" for RunPod GPU
+  filtering:
+    enabled: false  # Detect EVERYTHING, let Claude filter
+  enhance_image: true  # CLAHE for dark objects
+  text_prompt: ""  # Empty = automatic (uses "visual" prompt)
+
+claude:
+  api_key_env: "CLAUDE_API_KEY"  # Read from environment
+  model: "claude-sonnet-4-20250514"
+  max_tokens: 16000  # For large batches
+
+storage:
+  crops_dir: "images/crops"
+  raw_dir: "images/raw"
+
+# Server settings
+server:
+  host: "0.0.0.0"
+  port: 8000
+  workers: 1  # Single worker for GPU (don't parallelize GPU work)

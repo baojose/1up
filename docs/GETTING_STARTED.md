@@ -116,14 +116,26 @@ Ejecuta `./run_list_cameras.sh` para ver cámaras disponibles y edita `config.ya
 2. Si no estás autenticado: `hf auth login --token <token>`
 3. Revisa logs para errores específicos
 
-### Error MPS en macOS
+### Error MPS en macOS Intel
 
-Si ves errores de MPS (Metal Performance Shaders), el script `run_live_detection_with_claude.sh` ya incluye `PYTORCH_ENABLE_MPS_FALLBACK=1`. Si persiste, cambia en `config.yaml`:
+**⚠️ IMPORTANTE:** Mac Intel (pre-2020) **NO tiene MPS** (Metal Performance Shaders).  
+Si ves errores de MPS, es porque tu Mac es Intel, no Apple Silicon.
 
+**Solución:** Usa CPU en `config.yaml`:
 ```yaml
 sam3:
-  device: "cpu"  # En lugar de "mps"
+  device: "cpu"  # Mac Intel no tiene MPS - usar CPU
 ```
+
+**Detectar tipo de Mac:**
+```bash
+python3 -c "import platform; print(f'Processor: {platform.processor()}'); print(f'Machine: {platform.machine()}')"
+```
+
+- **Intel:** Processor: `i386`, Machine: `x86_64` → Usar CPU
+- **Apple Silicon:** Processor: `arm`, Machine: `arm64` → Puede usar MPS
+
+📖 Ver [docs/HARDWARE_CONFIG.md](HARDWARE_CONFIG.md) para detalles completos.
 
 ## 💡 Tips
 

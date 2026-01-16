@@ -408,7 +408,8 @@ class ImageStorage:
         object_analyses: Optional[Dict[int, Dict[str, Any]]] = None
     ) -> cv2.Mat:
         """
-        Create display frame with contours and labels (for live view).
+        Create display frame with auras/masks and labels (for live view).
+        Shows masks as semi-transparent overlays with colored auras for better visibility.
         
         Args:
             image: Original image
@@ -416,7 +417,7 @@ class ImageStorage:
             object_analyses: Optional dict of analyses (obj_id -> analysis)
             
         Returns:
-            Display frame with contours and labels
+            Display frame with masks, auras, and labels
         """
         import numpy as np
         
@@ -424,56 +425,132 @@ class ImageStorage:
         colors = [
             (0, 255, 255), (255, 0, 255), (0, 255, 0), (255, 255, 0),
             (255, 0, 0), (0, 0, 255), (255, 128, 0), (128, 0, 255),
-            (0, 255, 128), (255, 0, 128)
+            (0, 255, 128), (255, 0, 128), (128, 255, 0), (0, 128, 255),
+            (255, 128, 128), (128, 255, 128), (128, 128, 255)
         ]
         
+        # Create overlay for mask coloring (more visible)
         overlay = np.zeros_like(display_frame, dtype=np.float32)
         
-        # Draw contours
-        for i, detection in enumerate(detections[:20]):
+        # Draw masks with auras for better visibility
+        for i, detection in enumerate(detections[:50]):  # Show up to 50 objects
             x, y, w, h = detection['bbox']
             conf = detection['confidence']
             mask = detection.get('mask')
             color = colors[i % len(colors)]
+            color_bgr = tuple(int(c) for c in color)
             
             if mask is not None:
+                # Convert mask to uint8 if needed
                 if mask.dtype != np.uint8:
+                    if mask.max() <= 1.0:
                     mask_uint8 = (mask * 255).astype(np.uint8)
+                    else:
+                        mask_uint8 = mask.astype(np.uint8)
                 else:
                     mask_uint8 = mask
                 
+                # Ensure mask is binary
+                if mask_uint8.max() > 1:
+                    _, mask_uint8 = cv2.threshold(mask_uint8, 127, 255, cv2.THRESH_BINARY)
+                
+                # Resize mask to image size if needed
+                if mask_uint8.shape[:2] != image.shape[:2]:
+                    mask_uint8 = cv2.resize(mask_uint8, (image.shape[1], image.shape[0]), 
+                                           interpolation=cv2.INTER_NEAREST)
+                
+                # Create dilated mask for aura effect (glow around object)
+                kernel_aura = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
+                mask_dilated = cv2.dilate(mask_uint8, kernel_aura, iterations=2)
+                
+                # Draw aura (dilated mask, lighter color, more transparent)
+                aura_mask = (mask_dilated > 0) & (mask_uint8 == 0)  # Only the aura, not the object
+                overlay[aura_mask] = np.array(color, dtype=np.float32) * 0.15  # Light aura
+                
+                # Draw mask overlay (object itself, more visible)
+                mask_bool = mask_uint8 > 0
+                overlay[mask_bool] = np.array(color, dtype=np.float32) * 0.25  # More visible overlay
+                
+                # Draw contours for clear edges
                 contours, _ = cv2.findContours(mask_uint8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                cv2.drawContours(display_frame, contours, -1, color, 4)
-                
-                lighter_color = tuple(min(255, int(c * 1.4)) for c in color)
-                cv2.drawContours(display_frame, contours, -1, lighter_color, 2)
-                
-                overlay[mask_uint8 > 0] = np.array(color, dtype=np.float32) * 0.12
+                if len(contours) > 0:
+                    # Outer contour (white, thick) for visibility
+                    cv2.drawContours(display_frame, contours, -1, (255, 255, 255), 3)
+                    # Inner contour (colored, medium)
+                    cv2.drawContours(display_frame, contours, -1, color_bgr, 2)
             else:
-                cv2.rectangle(display_frame, (x, y), (x + w, y + h), color, 4)
+                # Fallback: draw rectangle if no mask available
+                cv2.rectangle(display_frame, (x, y), (x + w, y + h), color_bgr, 4)
+                # Add semi-transparent fill
+                overlay[y:y+h, x:x+w] = np.array(color, dtype=np.float32) * 0.15
         
-        # Apply screen blending
+        # Apply overlay with alpha blending for better visibility
         base = display_frame.astype(np.float32)
-        screen_result = 255 - ((255 - base) * (255 - overlay) / 255)
-        display_frame = np.clip(screen_result, 0, 255).astype(np.uint8)
+        # Blend: result = base * (1 - alpha) + overlay * alpha
+        alpha = 0.35  # More visible overlay
+        display_frame = (base * (1 - alpha) + overlay * alpha).astype(np.uint8)
         
-        # Draw labels
+        # Draw labels with better visibility
         if object_analyses:
-            for i, detection in enumerate(detections[:20]):
+            for i, detection in enumerate(detections[:50]):  # Show labels for up to 50 objects
                 x, y, w, h = detection['bbox']
-                color = colors[i % len(colors)]
+                color_bgr = colors[i % len(colors)]
+                color_tuple = tuple(int(c) for c in color_bgr)
                 obj_id = detection['id']
                 
                 if obj_id in object_analyses:
                     obj_name = object_analyses[obj_id].get('name', f'#{i+1}')
+                    category = object_analyses[obj_id].get('category', '')
+                    if category:
+                        label = f"#{i+1}: {obj_name[:20]} [{category[:10]}]"
+                    else:
                     label = f"#{i+1}: {obj_name[:25]}"
                 else:
-                    label = f"#{i+1} ({detection['confidence']:.2f})"
+                    conf = detection.get('confidence', 0)
+                    label = f"#{i+1} (conf:{conf:.2f})"
                 
-                (text_w, text_h), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
+                # Calculate text size and position
+                font_scale = 0.7 if image.shape[0] > 2000 else 0.5  # Scale font for 4K
+                thickness = 2 if image.shape[0] > 2000 else 1
+                (text_w, text_h), baseline = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness)
                 label_y = max(y - 5, text_h + 10)
-                cv2.rectangle(display_frame, (x, label_y - text_h - 5), (x + text_w + 10, label_y + 5), (0, 0, 0), -1)
-                cv2.putText(display_frame, label, (x + 5, label_y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+                label_x = max(x, 0)
+                label_w = text_w + 10
+                label_h = text_h + baseline + 10
+                
+                # Ensure label fits within image bounds
+                if label_x + label_w > image.shape[1]:
+                    label_x = image.shape[1] - label_w - 5
+                if label_y - label_h < 0:
+                    label_y = label_h + 5
+                
+                # Draw semi-transparent background for label (black rectangle)
+                label_bg_y1 = label_y - label_h
+                label_bg_y2 = label_y
+                label_bg_x1 = label_x
+                label_bg_x2 = label_x + label_w
+                
+                if (label_bg_y1 >= 0 and label_bg_y2 <= image.shape[0] and 
+                    label_bg_x1 >= 0 and label_bg_x2 <= image.shape[1]):
+                    roi = display_frame[label_bg_y1:label_bg_y2, label_bg_x1:label_bg_x2]
+                    if roi.size > 0:
+                        # Blend with black background (semi-transparent)
+                        alpha_bg = 0.7
+                        label_bg = np.zeros_like(roi, dtype=np.float32)
+                        label_bg[:] = (0, 0, 0)  # Black background
+                        blended = (roi.astype(np.float32) * (1 - alpha_bg) + label_bg * alpha_bg).astype(np.uint8)
+                        display_frame[label_bg_y1:label_bg_y2, label_bg_x1:label_bg_x2] = blended
+                
+                # Draw label text (white for contrast, then colored border)
+                text_x = label_x + 5
+                text_y = label_y - baseline - 5
+                if text_x >= 0 and text_y >= 0 and text_x + text_w <= image.shape[1]:
+                    # Draw colored border first (thicker, for visibility)
+                    cv2.putText(display_frame, label, (text_x, text_y), 
+                              cv2.FONT_HERSHEY_SIMPLEX, font_scale, color_tuple, thickness + 2)
+                    # Draw white text on top (better contrast)
+                    cv2.putText(display_frame, label, (text_x, text_y), 
+                              cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255, 255, 255), thickness)
         
         return display_frame
 

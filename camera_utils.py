@@ -7,6 +7,7 @@ import cv2
 import logging
 import platform
 import time
+import numpy as np
 from typing import List, Dict, Optional, Tuple, Any, Union
 
 # Try to import cv2-enumerate-cameras (best method for macOS)
@@ -346,6 +347,28 @@ def find_external_camera(preferred_index: Optional[int] = None, allow_iphone: bo
     return None
 
 
+def _read_frame_with_timeout(cap: cv2.VideoCapture, timeout: float = 5.0) -> Tuple[bool, Optional[np.ndarray]]:
+    """
+    Reads a frame from the camera with a timeout.
+    
+    Args:
+        cap: OpenCV VideoCapture object
+        timeout: Maximum time to wait for frame (seconds)
+        
+    Returns:
+        Tuple of (success: bool, frame: Optional[np.ndarray])
+    """
+    start_time = time.time()
+    while True:
+        ret, frame = cap.read()
+        if ret and frame is not None:
+            return True, frame
+        if time.time() - start_time > timeout:
+            logger.warning(f"⚠️  Timeout ({timeout:.1f}s) reached while reading frame.")
+            return False, None
+        time.sleep(0.01)  # Small delay to prevent busy-waiting
+
+
 def open_camera(
     source: Union[int, str],
     resolution: Optional[Tuple[int, int]] = None,
@@ -370,17 +393,33 @@ def open_camera(
     
     if is_rtsp:
         logger.info(f"Opening RTSP stream: {source[:50]}...")
-        # For RTSP, use URL directly
-        cap = cv2.VideoCapture(source)
+        
+        # For RTSP, add options to prevent blocking/timeouts
+        # Use TCP transport for reliability (UDP can be faster but less reliable)
+        # Note: Some cameras may not support TCP, so we try both
+        rtsp_with_tcp = f"{source}?rtsp_transport=tcp"
+        
+        # Try with TCP first (more reliable but potentially slower)
+        cap = cv2.VideoCapture(rtsp_with_tcp, cv2.CAP_FFMPEG)
+        
+        if not cap.isOpened():
+            # Try without TCP transport as fallback
+            logger.warning("Failed with TCP transport, trying default...")
+            cap = cv2.VideoCapture(source, cv2.CAP_FFMPEG)
         
         if not cap.isOpened():
             logger.error(f"Failed to open RTSP stream: {source[:50]}...")
             return None
         
         # Set buffer size for RTSP (critical for low latency)
+        # For RTSP, buffer_size=1 prevents accumulation of old frames
         if buffer_size is not None:
             cap.set(cv2.CAP_PROP_BUFFERSIZE, buffer_size)
             logger.info(f"Set RTSP buffer size: {buffer_size}")
+        
+        # Set timeout properties for RTSP (in milliseconds)
+        # OpenCV doesn't support direct timeout, but we can set read timeout via environment
+        # For now, we rely on buffer_size=1 to minimize delay
         
         # Set resolution if provided
         if resolution:
@@ -390,11 +429,22 @@ def open_camera(
             logger.info(f"Requested resolution: {w}x{h}")
         
         # Verify connection by reading a frame
-        ret, frame = cap.read()
+        # ⚠️ IMPORTANTE: Para 4K HEVC en Mac Intel, el primer frame puede tardar más (10-15s)
+        # Los errores HEVC son warnings de FFmpeg, no bloquean, pero ralentizan la decodificación
+        logger.info("Reading first frame (this may take 10-15s for 4K HEVC on Mac Intel)...")
+        ret, frame = _read_frame_with_timeout(cap, timeout=15.0)  # Increased timeout for 4K HEVC
+        
         if not ret or frame is None:
-            logger.error("RTSP stream opened but cannot read frames")
-            cap.release()
-            return None
+            logger.warning("⚠️  RTSP stream opened but first frame read failed after 15s timeout")
+            logger.warning("   For 4K HEVC on Mac Intel, this may be normal (HEVC decoding is slow)")
+            logger.warning("   The system will retry automatically in the main loop")
+            logger.warning("   ⚠️  Note: HEVC errors in logs are warnings, not fatal - processing continues")
+            # Don't fail immediately - let the main loop handle retries
+            # Some RTSP streams need a few attempts to start, especially 4K HEVC
+        else:
+            logger.info(f"✅ First frame read successfully: {frame.shape[1]}x{frame.shape[0]}")
+        
+        # Still return the cap even if first frame fails - main loop will handle retries
         
         actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))

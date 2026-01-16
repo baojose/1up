@@ -126,3 +126,38 @@ def filter_useful_objects(
     logger.info(f"📊 Filtered {len(useful_objects)} useful objects, {skipped_count} skipped")
     return useful_objects
 
+
+def filter_objects(
+    analyses: List[Dict[str, Any]],
+    image_shape: tuple,
+    max_area_ratio: float = 0.5
+) -> List[Dict[str, Any]]:
+    """
+    Simple filter for analyses (post-Claude filtering).
+    Filters by size and generic names.
+    
+    Args:
+        analyses: List of Claude analyses (already filtered by useful="yes")
+        image_shape: (height, width) of image
+        max_area_ratio: Maximum area ratio (default: 0.5 = 50%)
+    
+    Returns:
+        Filtered list of analyses
+    """
+    filtered = []
+    
+    for analysis in analyses:
+        # Filter by size
+        bbox = analysis.get('bbox')
+        if bbox and filter_by_size(bbox, image_shape, max_area_ratio):
+            continue
+        
+        # Filter by generic names
+        obj_name = analysis.get('name', '')
+        if filter_generic_names(obj_name):
+            continue
+        
+        filtered.append(analysis)
+    
+    return filtered
+

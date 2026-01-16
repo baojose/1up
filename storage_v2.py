@@ -121,33 +121,38 @@ def save_crops_for_useful_objects(
         # Extract crop
         crop = image[y1:y2, x1:x2].copy()
         
-        # Create square crop (1:1 aspect ratio) with object centered
+        # STANDARDIZED CROP SIZE: Todos los crops tienen el mismo tamaño
+        # Tamaño estándar: 512x512 (suficiente para e-commerce, buena calidad)
+        STANDARD_CROP_SIZE = 512
+        
         crop_height, crop_width = crop.shape[:2]
-        target_size = max(crop_width, crop_height)
-        min_size = 300
-        if target_size < min_size:
-            target_size = min_size
         
-        # Get average border color for padding
-        border_color = _get_border_color(crop)
-        square_crop = np.full((target_size, target_size, 3), border_color, dtype=np.uint8)
+        # Calculate scale to fit crop into standard size while maintaining aspect ratio
+        # Object will be centered in the 512x512 square
+        scale = min(STANDARD_CROP_SIZE / crop_width, STANDARD_CROP_SIZE / crop_height)
+        new_w = int(crop_width * scale)
+        new_h = int(crop_height * scale)
         
-        # Center crop in square
-        x_offset = (target_size - crop_width) // 2
-        y_offset = (target_size - crop_height) // 2
+        # Resize crop to fit within standard size (maintains aspect ratio)
+        if new_w != crop_width or new_h != crop_height:
+            crop_resized = cv2.resize(crop, (new_w, new_h), interpolation=cv2.INTER_CUBIC)
+        else:
+            crop_resized = crop.copy()
         
-        # If crop is larger than target, scale it down
-        if crop_width > target_size or crop_height > target_size:
-            scale = min(target_size / crop_width, target_size / crop_height)
-            new_w = int(crop_width * scale)
-            new_h = int(crop_height * scale)
-            crop = cv2.resize(crop, (new_w, new_h), interpolation=cv2.INTER_CUBIC)
-            crop_height, crop_width = crop.shape[:2]
-            x_offset = (target_size - crop_width) // 2
-            y_offset = (target_size - crop_height) // 2
+        # Get average border color for padding (natural look)
+        border_color = _get_border_color(crop_resized)
         
-        # Place crop in center of square
-        square_crop[y_offset:y_offset + crop_height, x_offset:x_offset + crop_width] = crop
+        # Create standard-sized square crop (512x512) with object centered
+        square_crop = np.full((STANDARD_CROP_SIZE, STANDARD_CROP_SIZE, 3), border_color, dtype=np.uint8)
+        
+        # Center the resized crop in the square
+        x_offset = (STANDARD_CROP_SIZE - new_w) // 2
+        y_offset = (STANDARD_CROP_SIZE - new_h) // 2
+        
+        # Place resized crop centered in square
+        square_crop[y_offset:y_offset + new_h, x_offset:x_offset + new_w] = crop_resized
+        
+        # Crop is now standardized: 512x512, object centered
         
         # VALIDATION: Check crop quality using mathematical metrics
         from image_quality import validate_crop_quality, calculate_sharpness_score

@@ -8,6 +8,7 @@ import torch
 import numpy as np
 import cv2
 import logging
+import platform
 from typing import List, Dict, Any, Tuple, Optional
 from pathlib import Path
 from PIL import Image
@@ -58,15 +59,25 @@ class SAM3Detector:
         
         logger.info("Loading SAM 3...")
         
-        # Detect device (MPS for Mac, CUDA for NVIDIA, CPU otherwise)
-        if device == "mps" and torch.backends.mps.is_available():
+        # Detect device (MPS only for Apple Silicon Macs, CUDA for NVIDIA, CPU otherwise)
+        # CRITICAL: Intel Macs (pre-2020) do NOT have MPS, must use CPU
+        is_apple_silicon = platform.processor() == 'arm' or 'arm64' in platform.machine().lower()
+        
+        if device == "mps" and torch.backends.mps.is_available() and is_apple_silicon:
             actual_device = "mps"
+            logger.info("✅ Using MPS (Apple Silicon GPU)")
         elif device == "cuda" and torch.cuda.is_available():
             actual_device = "cuda"
+            logger.info("✅ Using CUDA (NVIDIA GPU)")
         else:
             actual_device = "cpu"
             if device != "cpu":
-                logger.warning(f"Requested device '{device}' not available, using 'cpu'")
+                if device == "mps":
+                    logger.warning(f"⚠️  MPS requested but not available (Intel Mac detected)")
+                    logger.warning(f"   Intel Macs (pre-2020) do not have MPS, using CPU instead")
+                else:
+                    logger.warning(f"⚠️  Requested device '{device}' not available, using 'cpu'")
+            logger.info(f"✅ Using CPU (Intel Mac or no GPU available)")
         
         # Build SAM 3 model (checkpoints downloaded automatically from HuggingFace)
         self.model = build_sam3_image_model()
@@ -95,7 +106,7 @@ class SAM3Detector:
         )
         self.device = actual_device
         
-        logger.info(f"✅ SAM 3 loaded on {device}")
+        logger.info(f"✅ SAM 3 loaded on {actual_device}")
     
     def detect_objects(
         self, 
@@ -120,12 +131,43 @@ class SAM3Detector:
                         (e.g., "bag", "shoes", "electronics")
                         If None, uses automatic detection
         """
+        # CRITICAL: Resize large images BEFORE processing to prevent MPS out of memory
+        # SAM 3 internally resizes to 1008x1008, but loading full 4K into MPS first causes OOM
+        # Store original image dimensions for bbox scaling
+        original_shape = image.shape[:2]  # (height, width)
+        original_h, original_w = original_shape
+        
+        # CRITICAL: MPS has limited memory (6.8 GB max), SAM 3 needs ~5.5 GB just for model
+        # We need to process at much smaller resolution to prevent OOM
+        # SAM 3 processor default is 1008x1008, but even that causes OOM on MPS
+        # Use 720p (1280x720) which is enough for detection but uses less memory
+        max_sam3_dimension = 720  # Reduced from 1008 to prevent MPS OOM
+        max_dimension = max(original_h, original_w)
+        scale = 1.0  # Initialize scale (no resizing by default)
+        
+        # Always resize large images (4K) to 720p for SAM 3 processing
+        if max_dimension > max_sam3_dimension:
+            # Calculate scale to fit within max_sam3_dimension while maintaining aspect ratio
+            scale = max_sam3_dimension / max_dimension
+            new_w = int(original_w * scale)
+            new_h = int(original_h * scale)
+            
+            logger.info(f"Resizing image for SAM 3: {original_w}x{original_h} → {new_w}x{new_h} (scale: {scale:.2f})")
+            if original_w >= 3840 or original_h >= 2160:
+                logger.info(f"  ✅ Original is 4K ({original_w}x{original_h}) - Crops will be extracted from 4K for maximum quality")
+            logger.info(f"  (SAM 3 processes at 720p to prevent OOM, but crops use original {original_w}x{original_h} resolution)")
+            
+            # Resize image before enhancement (faster, better memory usage)
+            image_resized = cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_AREA)
+        else:
+            image_resized = image
+        
         if enhance_image:
-            image = enhance_for_detection(image)
+            image_resized = enhance_for_detection(image_resized)
             logger.debug("Applied CLAHE enhancement")
         
         # Convert BGR to RGB and PIL Image
-        rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        rgb = cv2.cvtColor(image_resized, cv2.COLOR_BGR2RGB)
         pil_image = Image.fromarray(rgb)
         
         # Set image in processor
@@ -144,17 +186,24 @@ class SAM3Detector:
             output = self.processor.set_text_prompt(state=inference_state, prompt=text_prompt)
             all_detections.append(output)
         else:
-            # MÁXIMA DETECCIÓN: Múltiples prompts para detectar TODO
-            # Cada prompt detecta diferentes tipos de objetos/regiones
+            # OPTIMIZACIÓN: Ajustar número de prompts según dispositivo
+            # CPU (Intel Mac) = más lento, usar menos prompts para velocidad
+            # MPS/CUDA = más rápido, usar más prompts para máxima detección
+            if self.device == "cpu":
+                # CPU: usar solo 1-2 prompts (más rápido)
+                prompts = [
+                    "visual",  # Detección general (objetos visuales) - suficiente en CPU
+                ]
+                logger.info(f"🔍 OPTIMIZED MODE (CPU): Using {len(prompts)} prompt for speed")
+            else:
+                # MPS/CUDA: usar múltiples prompts (máxima detección)
             prompts = [
                 "visual",      # Detección general (objetos visuales)
                 "container",   # Contenedores, frascos, botellas, cajas
                 "object",      # Objetos genéricos
-                "furniture",   # Muebles, sillas, mesas
-                "tool",        # Herramientas, utensilios
             ]
+                logger.info(f"🔍 MAXIMUM DETECTION MODE ({self.device.upper()}): Using {len(prompts)} prompts to detect EVERYTHING")
             
-            logger.info(f"🔍 MAXIMUM DETECTION MODE: Using {len(prompts)} prompts to detect EVERYTHING")
             for prompt in prompts:
                 try:
                     output = self.processor.set_text_prompt(state=inference_state, prompt=prompt)
@@ -199,6 +248,17 @@ class SAM3Detector:
             logger.warning("   - Confidence threshold too high")
             return []
         
+        # OPTIMIZACIÓN: Limitar objetos iniciales en CPU para velocidad
+        # CPU es lento procesando máscaras, limitar a top 500 por score antes de procesar
+        if self.device == "cpu" and num_objects > 500:
+            # Ordenar por score y tomar top 500
+            sorted_indices = torch.argsort(scores, descending=True)[:500]
+            masks = masks[sorted_indices]
+            boxes = boxes[sorted_indices]
+            scores = scores[sorted_indices]
+            num_objects = 500
+            logger.info(f"⚡ OPTIMIZACIÓN (CPU): Limitando a top 500 objetos por score para velocidad")
+        
         logger.debug(f"Processing {num_objects} objects...")
         
         # Convert to our format
@@ -217,23 +277,48 @@ class SAM3Detector:
                 # Threshold at 0.5 for float masks
                 mask_np = (mask_np > 0.5).astype(bool)
             
-            # Calculate area from mask
+            # Scale mask back to original image size if image was resized
+            if scale != 1.0:
+                # Scale mask back to original resolution
+                if mask_np.shape[:2] != original_shape:
+                    mask_resized = cv2.resize(
+                        (mask_np.astype(np.uint8) * 255),
+                        (original_w, original_h),
+                        interpolation=cv2.INTER_NEAREST
+                    )
+                    mask_np = (mask_resized > 127).astype(bool)
+            
+            # Calculate area from mask (now in original resolution)
             area = int(np.sum(mask_np))
             
             # Convert box from [x0, y0, x1, y1] to [x, y, w, h]
-            # Use SAM's original bbox (it's usually good enough, tight bbox was too aggressive)
+            # Scale bbox coordinates back to original size if image was resized
             box = boxes[i].cpu().numpy()
             x0, y0, x1, y1 = box
-            # Ensure coordinates are valid (non-negative and within image bounds)
+            # Ensure coordinates are valid (non-negative)
             x0 = max(0, float(x0))
             y0 = max(0, float(y0))
             x1 = max(x0, float(x1))  # x1 must be >= x0
             y1 = max(y0, float(y1))  # y1 must be >= y0
             
+            # Scale coordinates back to original image size
+            if scale != 1.0:
+                x0 = x0 / scale
+                y0 = y0 / scale
+                x1 = x1 / scale
+                y1 = y1 / scale
+            
             x = int(x0)
             y = int(y0)
             w = max(1, int(x1 - x0))  # Ensure width >= 1
             h = max(1, int(y1 - y0))  # Ensure height >= 1
+            
+            # Ensure bbox is within original image bounds
+            x = max(0, min(x, original_w - 1))
+            y = max(0, min(y, original_h - 1))
+            w = max(1, min(w, original_w - x))
+            h = max(1, min(h, original_h - y))
+            
             bbox = [x, y, w, h]
             
             # Calculate mask coverage ratio (how well mask covers bbox)
@@ -247,10 +332,10 @@ class SAM3Detector:
             detection = {
                 'id': i,
                 'original_index': i,  # CRITICAL: Store original index BEFORE sorting/filtering
-                'bbox': bbox,  # Use SAM's original bbox (better context)
-                'mask': mask_np,
+                'bbox': bbox,  # Now in original resolution (4K) for crops
+                'mask': mask_np,  # Mask in original resolution (4K)
                 'confidence': float(score),
-                'area': area,
+                'area': area,  # Area in original resolution
                 'coverage_ratio': float(coverage_ratio)  # Store coverage for filtering
             }
             detections.append(detection)
@@ -270,7 +355,7 @@ class SAM3Detector:
         if apply_filtering:
             detections = self._filter_detections(
                 detections,
-                image_shape=image.shape[:2],
+                image_shape=original_shape,  # Use original shape (4K) for filtering (bboxes are already in 4K)
                 min_area=min_area,
                 max_area_ratio=max_area_ratio,
                 min_aspect_ratio=min_aspect_ratio,
@@ -289,6 +374,26 @@ class SAM3Detector:
         if filtered_by_coverage > 0:
             logger.info(f"📊 Filtered {filtered_by_coverage} detections with very low mask coverage (< 15%)")
         
+        # OPTIMIZACIÓN: Filtrado más simple y rápido en CPU
+        if self.device == "cpu":
+            # CPU: usar filtrado simplificado (más rápido)
+            # Step 1: Filter contained boxes (más rápido que grupos)
+            detections = self._filter_contained_boxes(detections)
+            
+            # Step 2: Sort by confidence and apply simple NMS (más rápido que grupos complejos)
+            detections.sort(key=lambda d: d['confidence'], reverse=True)
+            nms_threshold = nms_iou_threshold if nms_iou_threshold is not None else 0.5
+            detections = self._filter_duplicates_nms(detections, iou_threshold=nms_threshold)
+            
+            # Step 3: Final sort by area
+            detections.sort(key=lambda d: d['area'], reverse=True)
+            
+            # Step 4: Limitar a top 200 objetos finales en CPU para velocidad
+            if len(detections) > 200:
+                detections = detections[:200]
+                logger.info(f"⚡ OPTIMIZACIÓN (CPU): Limitando a top 200 objetos finales para velocidad")
+        else:
+            # MPS/CUDA: usar filtrado completo (máxima calidad)
         # Step 1: Filter contained boxes
         detections = self._filter_contained_boxes(detections)
         
@@ -305,9 +410,12 @@ class SAM3Detector:
         # Step 5: Final sort by area
         detections.sort(key=lambda d: d['area'], reverse=True)
         
-        # Reassign IDs
+        # Reassign IDs and original_index after all filtering
+        # CRITICAL: original_index must be renumbered to match final positions
+        # This prevents out-of-range indices (e.g., original_index=151 when only 55 detections remain)
         for i, det in enumerate(detections):
             det['id'] = i
+            det['original_index'] = i  # Reassign to match final position after filtering
         
         logger.info(f"✅ Final result: {len(detections)} quality objects")
         return detections

@@ -24,6 +24,19 @@ if [ -f "$API_KEY_FILE" ]; then
     echo "✅ API key cargada desde $API_KEY_FILE"
 fi
 
+# Load HuggingFace token from file or environment
+HF_TOKEN_FILE=".hf_token"
+if [ -f "$HF_TOKEN_FILE" ]; then
+    export HF_TOKEN="$(cat "$HF_TOKEN_FILE" | tr -d '\n\r ')"
+    echo "✅ HF token cargado desde $HF_TOKEN_FILE"
+elif [ -n "$HF_TOKEN" ]; then
+    # Token already set in environment (e.g., from ~/.zshrc)
+    echo "✅ HF token cargado desde variable de entorno"
+else
+    echo "⚠️  HF_TOKEN no encontrado (necesario para SAM 3)"
+    echo "   El token puede estar configurado en ~/.zshrc o en .hf_token"
+fi
+
 # Check if API key is set (from file or environment)
 if [ -z "$CLAUDE_API_KEY" ]; then
     echo "⚠️  CLAUDE_API_KEY no está configurada"
