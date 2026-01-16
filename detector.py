@@ -14,13 +14,19 @@ from pathlib import Path
 from PIL import Image
 
 try:
-    from sam3.model_builder import build_sam3_image_model
+    from sam3 import build_sam3_image_model
     from sam3.model.sam3_image_processor import Sam3Processor
     SAM3_AVAILABLE = True
 except ImportError:
-    SAM3_AVAILABLE = False
-    logger = logging.getLogger(__name__)
-    logger.error("SAM 3 not installed. Install with: pip install -e git+https://github.com/facebookresearch/sam3.git")
+    try:
+        # Fallback: try direct import from sam3.sam3
+        from sam3.sam3.model_builder import build_sam3_image_model
+        from sam3.sam3.model.sam3_image_processor import Sam3Processor
+        SAM3_AVAILABLE = True
+    except ImportError:
+        SAM3_AVAILABLE = False
+        logger = logging.getLogger(__name__)
+        logger.error("SAM 3 not installed. Install with: pip install -e git+https://github.com/facebookresearch/sam3.git")
 
 logger = logging.getLogger(__name__)
 
