@@ -197,11 +197,11 @@ class SAM3Detector:
                 logger.info(f"🔍 OPTIMIZED MODE (CPU): Using {len(prompts)} prompt for speed")
             else:
                 # MPS/CUDA: usar múltiples prompts (máxima detección)
-            prompts = [
-                "visual",      # Detección general (objetos visuales)
-                "container",   # Contenedores, frascos, botellas, cajas
-                "object",      # Objetos genéricos
-            ]
+                prompts = [
+                    "visual",      # Detección general (objetos visuales)
+                    "container",   # Contenedores, frascos, botellas, cajas
+                    "object",      # Objetos genéricos
+                ]
                 logger.info(f"🔍 MAXIMUM DETECTION MODE ({self.device.upper()}): Using {len(prompts)} prompts to detect EVERYTHING")
             
             for prompt in prompts:
