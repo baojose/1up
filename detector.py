@@ -394,24 +394,24 @@ class SAM3Detector:
                 logger.info(f"⚡ OPTIMIZACIÓN (CPU): Limitando a top 200 objetos finales para velocidad")
         else:
             # MPS/CUDA: usar filtrado completo (máxima calidad)
-        # Step 1: Filter contained boxes
-        detections = self._filter_contained_boxes(detections)
-        
-        # Step 2: Keep largest in groups
-        detections = self._keep_largest_in_group(detections, iou_threshold=0.8)
-        
-        # Step 3: Sort by confidence for NMS
-        detections.sort(key=lambda d: d['confidence'], reverse=True)
-        
-        # Step 4: Apply NMS
-        nms_threshold = nms_iou_threshold if nms_iou_threshold is not None else 0.5
-        detections = self._filter_duplicates_nms(detections, iou_threshold=nms_threshold)
-        
-        # Step 5: Final sort by area
-        detections.sort(key=lambda d: d['area'], reverse=True)
-        
-        # Reassign IDs and original_index after all filtering
-        # CRITICAL: original_index must be renumbered to match final positions
+            # Step 1: Filter contained boxes
+            detections = self._filter_contained_boxes(detections)
+            
+            # Step 2: Keep largest in groups
+            detections = self._keep_largest_in_group(detections, iou_threshold=0.8)
+            
+            # Step 3: Sort by confidence for NMS
+            detections.sort(key=lambda d: d['confidence'], reverse=True)
+            
+            # Step 4: Apply NMS
+            nms_threshold = nms_iou_threshold if nms_iou_threshold is not None else 0.5
+            detections = self._filter_duplicates_nms(detections, iou_threshold=nms_threshold)
+            
+            # Step 5: Final sort by area
+            detections.sort(key=lambda d: d['area'], reverse=True)
+            
+            # Reassign IDs and original_index after all filtering
+            # CRITICAL: original_index must be renumbered to match final positions
         # This prevents out-of-range indices (e.g., original_index=151 when only 55 detections remain)
         for i, det in enumerate(detections):
             det['id'] = i
