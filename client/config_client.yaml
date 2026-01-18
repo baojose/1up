@@ -15,6 +15,6 @@ camera:
     warning_sharpness: 50.0
 
 server:
-  # RunPod server URL (update with your RunPod endpoint)
-  url: "http://localhost:8000"  # Default local, update to RunPod IP:port
+  # RunPod server URL
+  url: "https://p46aodz40pkaij-8000.proxy.runpod.net"
   timeout: 120  # 2 minutes timeout for processing
