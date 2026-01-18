@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Dict, Any, List
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import yaml
 
@@ -309,6 +310,36 @@ async def detect_objects(request: DetectionRequest):
             metadata={},
             error=str(e)
         )
+
+
+@app.get("/crops/list")
+async def list_crops():
+    """List all available crop images."""
+    crops_dir = Path(config['storage']['crops_dir'])
+    crops_dir.mkdir(parents=True, exist_ok=True)
+    
+    crops = []
+    for crop_file in sorted(crops_dir.rglob("*.jpg")):
+        relative_path = crop_file.relative_to(crops_dir.parent)
+        crops.append({
+            'path': str(relative_path),
+            'name': crop_file.name,
+            'timestamp': crop_file.parent.name
+        })
+    
+    return {'crops': crops, 'count': len(crops)}
+
+
+@app.get("/crops/{path:path}")
+async def get_crop(path: str):
+    """Serve crop image file."""
+    crops_dir = Path(config['storage']['crops_dir'])
+    crop_path = crops_dir / path
+    
+    if not crop_path.exists() or not crop_path.is_file():
+        raise HTTPException(status_code=404, detail="Crop not found")
+    
+    return FileResponse(str(crop_path))
 
 
 if __name__ == "__main__":
