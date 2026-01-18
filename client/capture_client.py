@@ -250,6 +250,16 @@ class CaptureClient:
 
 def main():
     """Main client loop."""
+    import sys
+    
+    # Clean database if requested (--clean flag)
+    if '--clean' in sys.argv or '-c' in sys.argv:
+        base_dir = Path(__file__).parent.parent
+        db_path = base_dir / "database" / "objects.json"
+        if db_path.exists():
+            db_path.unlink()
+            logger.info("🧹 Database cleared")
+    
     client = CaptureClient()
     
     # Check server health
@@ -268,6 +278,8 @@ def main():
     logger.info("1UP CLIENT - Server Processing Mode")
     logger.info("  SPACE = Capture and send to server")
     logger.info("  Q = Quit")
+    logger.info("="*60)
+    logger.info("💡 TIP: Run with --clean to clear database before starting")
     logger.info("="*60 + "\n")
     
     try:
