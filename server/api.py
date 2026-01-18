@@ -230,6 +230,7 @@ async def detect_objects(request: DetectionRequest):
             
             # Renumber analyses consecutively (1, 2, 3, 4...)
             analyses_for_crops = []
+            renumbered_analyses = []  # Store renumbered analyses for response
             for new_n, obj in enumerate(useful_objects, start=1):
                 analysis = obj['analysis'].copy()
                 analysis['n'] = new_n  # Renumber consecutively
@@ -246,6 +247,7 @@ async def detect_objects(request: DetectionRequest):
                         continue
                 
                 analyses_for_crops.append(analysis)
+                renumbered_analyses.append(analysis)  # Store renumbered version
                 obj['new_n'] = new_n
             
             # Generate crops for useful objects
@@ -264,9 +266,9 @@ async def detect_objects(request: DetectionRequest):
             crops = {}
             logger.warning("⚠️  Claude analyzer not available, skipping analysis")
         
-        # Prepare response (extract analyses from useful_objects if available)
-        if analyzer and useful_objects:
-            response_detections = [obj['analysis'] for obj in useful_objects]
+        # Prepare response (use renumbered analyses if available)
+        if analyzer and useful_objects and renumbered_analyses:
+            response_detections = renumbered_analyses  # Use renumbered analyses (n=1,2,3...)
         else:
             response_detections = detections
         
