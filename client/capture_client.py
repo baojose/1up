@@ -6,12 +6,13 @@ Max 350 lines.
 import sys
 import cv2
 import yaml
+import json
 import logging
 import base64
 import requests
 import numpy as np
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from datetime import datetime
 
 # Add parent directory to path
@@ -151,6 +152,94 @@ class CaptureClient:
             logger.error(f"❌ Server health check failed: {e}")
             return False
     
+    def save_objects_to_database(
+        self,
+        detections: List[Dict[str, Any]],
+        crops: Dict[str, str],
+        timestamp: str
+    ) -> bool:
+        """
+        Save objects to database/objects.json.
+        
+        Args:
+            detections: List of detection analyses from server
+            crops: Dict mapping n (str) to crop_path (relative to images/)
+            timestamp: Scene timestamp
+        
+        Returns:
+            True if successful, False otherwise
+        """
+        base_dir = Path(__file__).parent.parent
+        db_path = base_dir / "database" / "objects.json"
+        
+        # Load existing database
+        database = []
+        if db_path.exists():
+            try:
+                with open(db_path, 'r', encoding='utf-8') as f:
+                    database = json.load(f)
+            except json.JSONDecodeError:
+                logger.warning("⚠️  Database file corrupted, starting fresh")
+                database = []
+        
+        # Convert detections + crops to final_objects format
+        final_objects = []
+        for analysis in detections:
+            n = analysis.get('n')
+            if not n:
+                continue
+            
+            # Get crop path (convert n to string for dict lookup)
+            crop_path = crops.get(str(n))
+            if not crop_path:
+                logger.warning(f"⚠️  No crop for n={n}, skipping")
+                continue
+            
+            # Ensure crop_path is relative to images/
+            if crop_path.startswith('images/'):
+                crop_path = crop_path[7:]  # Remove 'images/' prefix
+            elif not crop_path.startswith('crops/'):
+                crop_path = f"crops/{crop_path}"  # Add 'crops/' prefix if missing
+            
+            # Get bbox (convert numpy arrays to lists)
+            bbox = analysis.get('bbox', [0, 0, 0, 0])
+            if isinstance(bbox, np.ndarray):
+                bbox = bbox.tolist()
+            
+            final_obj = {
+                'id': f"obj_{timestamp}_{n:03d}",
+                'timestamp': timestamp,
+                'detection_number': n,
+                'thumbnail': crop_path,  # Relative to images/
+                'bbox': bbox,
+                'confidence': float(analysis.get('confidence', 0.0)),
+                'area': int(analysis.get('area', 0)),
+                'name': analysis.get('name', 'Unknown object'),
+                'category': analysis.get('category', 'other'),
+                'condition': analysis.get('condition', 'unknown'),
+                'description': analysis.get('description', ''),
+                'estimated_value': analysis.get('estimated_value')
+            }
+            final_objects.append(final_obj)
+        
+        if not final_objects:
+            logger.warning("⚠️  No objects to save")
+            return False
+        
+        # Add to database
+        database.extend(final_objects)
+        
+        # Save database
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            with open(db_path, 'w', encoding='utf-8') as f:
+                json.dump(database, f, indent=2, ensure_ascii=False)
+            logger.info(f"💾 Database saved: {len(final_objects)} new objects ({len(database)} total)")
+            return True
+        except Exception as e:
+            logger.error(f"❌ Failed to save database: {e}")
+            return False
+    
     def close(self):
         """Close camera connection."""
         if self.cap is not None:
@@ -227,6 +316,10 @@ def main():
                         name = obj.get('name', 'Unknown')
                         category = obj.get('category', 'N/A')
                         logger.info(f"   {i+1}. {name} ({category})")
+                    
+                    # Save objects to database
+                    if detections and crops:
+                        client.save_objects_to_database(detections, crops, timestamp)
                     
                 except Exception as e:
                     logger.error(f"❌ Processing failed: {e}")
