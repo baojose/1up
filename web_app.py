@@ -6,10 +6,12 @@ Serves detected objects in an e-commerce format.
 import json
 import logging
 import os
+import yaml
+import requests
 from pathlib import Path
 from typing import Dict, List, Any
 
-from flask import Flask, render_template, send_from_directory
+from flask import Flask, render_template, send_from_directory, redirect, Response
 
 # Setup logging
 logging.basicConfig(
@@ -25,6 +27,19 @@ app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0  # Disable caching for development
 BASE_DIR = Path(__file__).parent
 DATABASE_PATH = BASE_DIR / "database" / "objects.json"
 IMAGES_DIR = BASE_DIR / "images"
+
+# Load server URL from client config (for image serving)
+SERVER_URL = None
+try:
+    client_config_path = BASE_DIR / "client" / "config_client.yaml"
+    if client_config_path.exists():
+        with open(client_config_path, 'r') as f:
+            client_config = yaml.safe_load(f)
+            SERVER_URL = client_config.get('server', {}).get('url')
+            if SERVER_URL:
+                logger.info(f"Server URL configured: {SERVER_URL}")
+except Exception as e:
+    logger.warning(f"Could not load server URL from config: {e}")
 
 
 def load_objects() -> List[Dict[str, Any]]:
@@ -107,21 +122,43 @@ def index():
 
 @app.route('/images/<path:filename>')
 def serve_image(filename: str):
-    """Serve images from the images directory."""
+    """Serve images from local directory or proxy from RunPod server."""
     try:
-        # filename should already be relative to images/ (e.g., "crops/.../obj_072.jpg")
-        # Find the image file
+        # First, try local file
         image_path = IMAGES_DIR / filename
+        if image_path.exists():
+            directory = image_path.parent
+            file_name = image_path.name
+            return send_from_directory(str(directory), file_name)
         
-        if not image_path.exists():
-            logger.warning(f"Image not found: {image_path}")
-            return "Image not found", 404
+        # If not local, proxy from RunPod server
+        if SERVER_URL:
+            # Convert path: crops/{timestamp}/{filename} -> {timestamp}/{filename}
+            # or images/crops/{timestamp}/{filename} -> {timestamp}/{filename}
+            crop_path = filename
+            if crop_path.startswith('images/crops/'):
+                crop_path = crop_path[13:]  # Remove 'images/crops/' prefix
+            elif crop_path.startswith('crops/'):
+                crop_path = crop_path[6:]  # Remove 'crops/' prefix
+            
+            server_url = f"{SERVER_URL}/crops/{crop_path}"
+            logger.info(f"Proxying image from server: {server_url}")
+            
+            try:
+                response = requests.get(server_url, timeout=10)
+                response.raise_for_status()
+                return Response(
+                    response.content,
+                    mimetype=response.headers.get('Content-Type', 'image/jpeg')
+                )
+            except requests.exceptions.RequestException as e:
+                logger.warning(f"Failed to fetch image from server: {e}")
+                return "Image not found", 404
         
-        # Get directory and filename
-        directory = image_path.parent
-        file_name = image_path.name
+        # No server configured and file doesn't exist locally
+        logger.warning(f"Image not found locally and no server configured: {filename}")
+        return "Image not found", 404
         
-        return send_from_directory(str(directory), file_name)
     except Exception as e:
         logger.error(f"Error serving image {filename}: {e}")
         return "Error serving image", 500
