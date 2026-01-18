@@ -2,10 +2,12 @@
 # Captures frames and sends to server for processing
 
 camera:
-  # Reolink RTSP stream (4K for maximum quality)
+  # Reolink RTSP stream - 4K HEVC for maximum quality
+  # Mac Intel may have HEVC decoding issues, but we only capture and send to RunPod server
+  # Server processes in 4K with GPU (much faster)
   source: "rtsp://admin:Polic!ia1@192.168.1.188:8554/h264Preview_01_main"
-  resolution: [3840, 2160]  # 4K for maximum crop quality
-  fps: 2
+  resolution: [3840, 2160]  # 4K HEVC for maximum crop quality
+  fps: 3  # Reduced FPS for stability with 4K HEVC
   buffer_size: 1  # Low latency for RTSP
   
   # Image quality validation
